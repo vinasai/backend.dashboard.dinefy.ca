@@ -5,7 +5,11 @@ from app.routes import router
 
 from fastapi.security import OAuth2PasswordBearer
 
-app = FastAPI()
+app = FastAPI(
+    title="Your Restaurant Management API",
+    description="API for Restaurant Management",
+    version="0.1.0"
+)
 
 # origins = [
 #     "https://localhost:3000",  

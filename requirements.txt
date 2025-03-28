@@ -5,3 +5,4 @@ jwt
 bcrypt
 python-multipart
 PyJWT
+pydantic[email]
