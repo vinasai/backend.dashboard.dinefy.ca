@@ -1,7 +1,8 @@
 # utils.py
 import bcrypt
 import jwt
-from jwt import PyJWTError, decode as jwt_decode, encode as jwt_encode
+from jwt.exceptions import PyJWTError
+from jwt import decode as jwt_decode, encode as jwt_encode
 from fastapi import Depends
 from datetime import datetime, timedelta
 from fastapi import HTTPException
