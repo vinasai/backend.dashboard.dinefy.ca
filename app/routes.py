@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.models import User_login, User, RestaurantDetails
-from app.services import save_restaurant_details, get_restaurant_details
+from app.services import save_restaurant_details, get_restaurant_details , get_call_logs_service
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
 from app.utils import get_current_user
@@ -41,3 +41,12 @@ async def retrieve_restaurant_details(
     Retrieve restaurant details for the authenticated user
     """
     return await get_restaurant_details(current_user)
+
+@router.get("/Call_Logs")
+async def retrieve_call_logs(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieve call logs for the authenticated user
+    """
+    return await get_call_logs_service(current_user)

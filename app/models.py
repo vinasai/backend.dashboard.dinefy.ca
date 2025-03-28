@@ -43,3 +43,16 @@ class RestaurantDetails(BaseModel):
     features: Features
     greetingMessage: str
     endingMessage: str
+    
+class CallLogs(BaseModel):
+    status: str
+    date_time: str
+    phone_number: str
+    duration: str
+    satisfaction: int
+    
+    class CallDetails(BaseModel):
+        transcript: Optional[str]
+        recording_url: Optional[HttpUrl]
+
+    call_details: CallDetails

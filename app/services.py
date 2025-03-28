@@ -106,3 +106,29 @@ async def save_restaurant_details(details: RestaurantDetails, current_user):
             raise HTTPException(status_code=500, detail="Failed to save restaurant details")
         
         return {"message": "Restaurant details saved successfully"}
+    
+async def get_call_logs_service(current_user):
+    """
+    Retrieve call logs for the current user's Twilio number
+    """
+    # Fetch the user's Twilio number from the restaurant details
+    restaurant_details = await get_restaurant_details(current_user)
+    twilio_number = restaurant_details.get("twilio_number")
+   
+    if not twilio_number:
+        raise HTTPException(status_code=404, detail="Twilio number not found for the user")
+   
+    # Query the call logs collection for the given Twilio number
+    call_logs = collection_restaurant.find(
+        {"twilio_number": twilio_number},
+        {"_id": 0}  # Exclude MongoDB's internal _id
+    ).sort("timestamp", DESCENDING)  # Sort by timestamp in descending order
+   
+    # Convert the cursor to a list
+    call_logs_list = list(call_logs)
+   
+    if not call_logs_list:
+        raise HTTPException(status_code=404, detail="No call logs found for the Twilio number")
+   
+    return call_logs_list
+    
