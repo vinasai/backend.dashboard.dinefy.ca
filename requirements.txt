@@ -1,7 +1,6 @@
 fastapi 
 uvicorn
 pymongo
-jwt
 bcrypt
 python-multipart
 PyJWT
