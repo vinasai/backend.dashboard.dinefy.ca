@@ -1,6 +1,6 @@
 #moedels.py
 from pydantic import BaseModel, EmailStr, HttpUrl
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 class User_login(BaseModel):
@@ -8,7 +8,7 @@ class User_login(BaseModel):
     password: str
     
 class User(BaseModel):
-    name:str
+    user_name:str
     user_email:str
     user_pw:str
     twilio_number:str
@@ -56,3 +56,38 @@ class CallLogs(BaseModel):
         recording_url: Optional[HttpUrl]
 
     call_details: CallDetails
+
+class CloverIntegration(BaseModel):
+    api_key: str
+    last_sync: str
+    connected: bool
+    real_time_order_tracking: bool
+
+class ShopifyIntegration(BaseModel):
+    api_key: str
+    last_sync: str
+    connected: bool
+    real_time_order_tracking: bool
+
+class Integrations(BaseModel):
+    clover: CloverIntegration
+    shopify: ShopifyIntegration
+
+class IntegrationModel(BaseModel):
+    integrations: Integrations
+
+class PaymentMethod(BaseModel):
+    cardholder_name: str
+    card_number: str
+    expiry_date: str
+    cvc: str
+
+class PaymentHistory(BaseModel):
+    date: str
+    purchase_id: str
+    amount: float
+    minutes: int
+
+class UserPayments(BaseModel):
+    payment_methods: List[PaymentMethod]
+    payment_history: List[PaymentHistory]

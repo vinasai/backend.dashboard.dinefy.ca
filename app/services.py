@@ -1,6 +1,6 @@
 # services.py
 from app.database import collection_user
-from app.models import User,RestaurantDetails
+from app.models import User
 from app.utils import hash_password, verify_password, create_access_token,authenticate_user
 from datetime import timedelta
 from fastapi import HTTPException
@@ -8,7 +8,7 @@ from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.database import collection_restaurant
+from app.database import collection_restaurant, collection_call_logs ,collection_integrations
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -62,50 +62,44 @@ async def get_restaurant_details(current_user):
     """
     Retrieve restaurant details for a specific user
     """
-    restaurant_settings = collection_restaurant.find_one(
-        {"user_email": current_user["user_email"]}, 
+    restaurant_details = collection_restaurant.find_one(
+        {"user_email": current_user["user_email"]},
         {"_id": 0}  # Exclude MongoDB's internal _id
     )
-    
-    if not restaurant_settings:
-        raise HTTPException(status_code=404, detail="Restaurant details not found")
-    
-    return restaurant_settings
+    return restaurant_details
 
-async def save_restaurant_details(details: RestaurantDetails, current_user):
+async def save_restaurant_details(RestaurantDetails, current_user):
     """
     Save restaurant details for a specific user
     """
     # Convert Pydantic model to dictionary and handle HttpUrl conversion
-    details_dict = details.dict()
+    details_dict = RestaurantDetails.dict()
     
-    # Convert HttpUrl to string
-    if 'website' in details_dict:
+    # Convert HttpUrl to string if it exists
+    if 'website' in details_dict and details_dict['website']:
         details_dict['website'] = str(details_dict['website'])
     
     # Add user email to the details
     details_dict['user_email'] = current_user["user_email"]
     
     # Check if details already exist for this user
-    existing_settings = collection_restaurant.find_one({"email": current_user["user_email"]})
+    existing_details = collection_restaurant.find_one({"user_email": current_user["user_email"]})
     
-    if existing_settings:
+    if existing_details:
         # Update existing details
         result = collection_restaurant.update_one(
-            {"email": current_user["user_email"]},
+            {"user_email": current_user["user_email"]},
             {"$set": details_dict}
         )
         if result.modified_count == 0:
-            raise HTTPException(status_code=500, detail="Failed to update restaurant details")
-        return {"message": "Restaurant details updated successfully"}
+            return {"message": "No changes detected", "status": "unchanged"}
+        return {"message": "Restaurant details updated successfully", "status": "updated"}
     else:
         # Insert new details
         result = collection_restaurant.insert_one(details_dict)
-        
         if not result.inserted_id:
             raise HTTPException(status_code=500, detail="Failed to save restaurant details")
-        
-        return {"message": "Restaurant details saved successfully"}
+        return {"message": "Restaurant details saved successfully", "status": "created"}
     
 async def get_call_logs_service(current_user):
     """
@@ -113,13 +107,17 @@ async def get_call_logs_service(current_user):
     """
     # Fetch the user's Twilio number from the restaurant details
     restaurant_details = await get_restaurant_details(current_user)
+    if not restaurant_details:
+        return []  # Return empty array instead of 404
+    
     twilio_number = restaurant_details.get("twilio_number")
+    print(twilio_number)
    
     if not twilio_number:
-        raise HTTPException(status_code=404, detail="Twilio number not found for the user")
+        return []  # Return empty array instead of 404
    
     # Query the call logs collection for the given Twilio number
-    call_logs = collection_restaurant.find(
+    call_logs = collection_call_logs.find(
         {"twilio_number": twilio_number},
         {"_id": 0}  # Exclude MongoDB's internal _id
     ).sort("timestamp", DESCENDING)  # Sort by timestamp in descending order
@@ -127,8 +125,43 @@ async def get_call_logs_service(current_user):
     # Convert the cursor to a list
     call_logs_list = list(call_logs)
    
-    if not call_logs_list:
-        raise HTTPException(status_code=404, detail="No call logs found for the Twilio number")
-   
     return call_logs_list
+
+async def save_integration_details(integration_details, current_user):
+    """
+    Save integration details for a specific user
+    """
+    # Convert Pydantic model to dictionary and handle HttpUrl conversion
+    integration_dict = integration_details.dict()
+    
+    #Convert API key to string
+    if 'api_key' in integration_dict:
+        integration_dict['api_key'] = str(integration_dict['api_key'])
+        
+    # Add user email to the details
+    integration_dict['user_email'] = current_user["user_email"]
+    
+    # Check if integration details already exist for this user
+    existing_integration = collection_integrations.find_one({"user_email": current_user["user_email"]})
+    
+    # If integration details exist, update them
+    if existing_integration:
+        result = collection_integrations.update_one(
+            {"user_email": current_user["user_email"]},
+            {"$set": integration_dict}
+        )
+        if result.modified_count == 0:
+            raise HTTPException(status_code=500, detail="Failed to update integration details")
+        return {"message": "Integration details updated successfully"}
+    else:
+        # If no existing integration details, insert new ones
+        result = collection_integrations.insert_one(integration_dict)
+        
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to save integration details")
+        
+        return {"message": "Integration details saved successfully"}
+    
+    
+    
     
