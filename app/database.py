@@ -8,5 +8,6 @@ database = client.Call_Assistant_Dashboard
 
 collection_user = database["users"]
 collection_restaurant = database['restaurant_details']
-collection_integrations = database['intergrations']
+collection_clover = database["clover_integrations"]
+collection_shopify = database["shopify_integrations"]
 collection_call_logs = database['call_logs']

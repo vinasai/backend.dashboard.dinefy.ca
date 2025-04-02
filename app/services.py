@@ -8,7 +8,7 @@ from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.database import collection_restaurant, collection_call_logs ,collection_integrations
+from app.database import collection_restaurant, collection_call_logs ,collection_clover ,collection_shopify
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -127,40 +127,118 @@ async def get_call_logs_service(current_user):
    
     return call_logs_list
 
-async def save_integration_details(integration_details, current_user):
+async def get_clover_integration(current_user):
     """
-    Save integration details for a specific user
+    Get Clover integration details for a user
     """
-    # Convert Pydantic model to dictionary and handle HttpUrl conversion
-    integration_dict = integration_details.dict()
+ 
+    integration = collection_clover.find_one({"user_email": current_user["user_email"]})
+    if integration:
+        # Remove MongoDB _id before returning
+        integration.pop("_id", None)
+        return integration
+    return None
+
+async def save_clover_integration(current_user, integration_data: dict):
+    """
+    Save or update Clover integration for a user
+    """
+    user_email = current_user["user_email"]
+    # Check if integration already exists for this user
+    existing = await get_clover_integration(current_user)
     
-    #Convert API key to string
-    if 'api_key' in integration_dict:
-        integration_dict['api_key'] = str(integration_dict['api_key'])
-        
-    # Add user email to the details
-    integration_dict['user_email'] = current_user["user_email"]
+    integration_data["user_email"] = user_email
+    integration_data["connected"] = True
     
-    # Check if integration details already exist for this user
-    existing_integration = collection_integrations.find_one({"user_email": current_user["user_email"]})
-    
-    # If integration details exist, update them
-    if existing_integration:
-        result = collection_integrations.update_one(
-            {"user_email": current_user["user_email"]},
-            {"$set": integration_dict}
+    if existing:
+        # Update existing integration
+        collection_clover.update_one(
+            {"user_email": user_email},
+            {"$set": integration_data}
         )
-        if result.modified_count == 0:
-            raise HTTPException(status_code=500, detail="Failed to update integration details")
-        return {"message": "Integration details updated successfully"}
     else:
-        # If no existing integration details, insert new ones
-        result = collection_integrations.insert_one(integration_dict)
-        
-        if not result.inserted_id:
-            raise HTTPException(status_code=500, detail="Failed to save integration details")
-        
-        return {"message": "Integration details saved successfully"}
+        # Create new integration
+        collection_clover.insert_one(integration_data)
+    
+    return {
+        "connected": True,
+        "message": "Clover integration connected successfully"
+    }
+
+async def update_clover_integration(current_user):
+    """
+    Delete Clover integration for a user
+    """
+    result = collection_clover.update_one(
+        {"user_email": current_user["user_email"]},
+        {"$set": {"connected": False}}
+    )
+    if result.modified_count == 0:
+        return {
+            "connected": False,
+            "message": "No Clover integration found to update"
+        }
+    
+    return {
+        "connected": False,
+        "message": "Clover integration disconnected successfully"
+    }
+
+async def get_shopify_integration(current_user):
+    """
+    Get Shopify integration details for a user
+    """
+    integration = collection_shopify.find_one({"user_email": current_user["user_email"]})
+    if integration:
+        # Remove MongoDB _id before returning
+        integration.pop("_id", None)
+        return integration
+    return None
+
+async def save_shopify_integration(current_user, integration_data: dict):
+    """
+    Save or update Shopify integration for a user
+    """
+    user_email = current_user["user_email"]
+    # Check if integration already exists for this user
+    existing = await get_shopify_integration(current_user)
+    
+    integration_data["user_email"] = user_email
+    integration_data["connected"] = True
+    
+    if existing:
+        # Update existing integration
+        collection_shopify.update_one(
+            {"user_email": user_email},
+            {"$set": integration_data}
+        )
+    else:
+        # Create new integration
+        collection_shopify.insert_one(integration_data)
+    
+    return {
+        "connected": True,
+        "message": "Shopify integration connected successfully"
+    }
+
+async def update_shopify_integration(current_user):
+    """
+    Delete Shopify integration for a user
+    """
+    result = collection_shopify.update_one(
+        {"user_email": current_user["user_email"]},
+        {"$set": {"connected": False}}
+    )
+    if result.modified_count == 0:
+        return {
+            "connected": False,
+            "message": "No Clover integration found to update"
+        }
+    
+    return {
+        "connected": False,
+        "message": "Clover integration disconnected successfully"
+    }
     
     
     

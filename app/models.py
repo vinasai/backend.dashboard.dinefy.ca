@@ -57,24 +57,29 @@ class CallLogs(BaseModel):
 
     call_details: CallDetails
 
-class CloverIntegration(BaseModel):
+class CloverIntegrationBase(BaseModel):
+    api_token: str  # Changed from api_key to match the example JSON
+    merchant_id: str
+    connected: bool = False
+
+class ShopifyIntegrationBase(BaseModel):
     api_key: str
-    last_sync: str
+    api_secret: str
+    shop_url: str
+    connected: bool = False
+
+class IntegrationResponse(BaseModel):
     connected: bool
-    real_time_order_tracking: bool
+    message: str
 
-class ShopifyIntegration(BaseModel):
-    api_key: str
-    last_sync: str
-    connected: bool
-    real_time_order_tracking: bool
+class CloverIntegrationResponse(IntegrationResponse):
+    api_token: Optional[str] = None  # Changed from api_key to match the example JSON
+    merchant_id: Optional[str] = None
 
-class Integrations(BaseModel):
-    clover: CloverIntegration
-    shopify: ShopifyIntegration
-
-class IntegrationModel(BaseModel):
-    integrations: Integrations
+class ShopifyIntegrationResponse(IntegrationResponse):
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    shop_url: Optional[str] = None
 
 class PaymentMethod(BaseModel):
     cardholder_name: str

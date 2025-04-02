@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.models import User_login, User, RestaurantDetails ,IntegrationModel
-from app.services import save_restaurant_details, get_restaurant_details , get_call_logs_service ,save_integration_details
+from app.models import User_login, User, RestaurantDetails ,CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse
+from app.services import save_restaurant_details, get_restaurant_details , get_call_logs_service ,get_clover_integration, save_clover_integration, update_clover_integration, get_shopify_integration ,save_shopify_integration, update_shopify_integration
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
 from app.utils import get_current_user
@@ -87,12 +87,70 @@ async def retrieve_call_logs(
     """
     return await get_call_logs_service(current_user)
 
-@router.post("/Integrations")
-async def create_integration_details(
-    integraions: IntegrationModel, 
-    current_user: User = Depends(get_current_user)
+@router.get("/integrations/clover", response_model=CloverIntegrationResponse)
+async def get_clover(current_user: str = Depends(get_current_user)):
+    """Get Clover integration status and details for current user"""
+    integration = await get_clover_integration(current_user)
+    
+    if integration:
+        return {
+            "connected": integration.get("connected", False),
+            "message": "Clover integration is connected",
+            "api_key": integration.get("api_key"),
+            "merchant_id": integration.get("merchant_id")
+        }
+    
+    return {
+        "connected": False,
+        "message": "No Clover integration found"
+    }
+
+@router.post("/integrations/clover", response_model=CloverIntegrationResponse)
+async def connect_clover(
+    integration: CloverIntegrationBase,
+    current_user: str = Depends(get_current_user)
 ):
-    """
-    Create or update integration details for the authenticated user
-    """
-    return await save_integration_details(integraions, current_user)
+    """Connect or update Clover integration for current user"""
+
+    return await save_clover_integration(current_user, integration.dict())
+
+@router.put("/integrations/clover", response_model=CloverIntegrationResponse)
+async def disconnect_clover(current_user: str = Depends(get_current_user)):
+    """Disconnect Clover integration for current user"""
+
+    return await update_clover_integration(current_user)
+
+@router.get("/integrations/shopify", response_model=ShopifyIntegrationResponse)
+async def get_shopify(current_user: str = Depends(get_current_user)):
+    """Get Shopify integration status and details for current user"""
+    integration = await get_shopify_integration(current_user)
+    
+    if integration:
+        return {
+            "connected": integration.get("connected", False),
+            "message": "Shopify integration is connected",
+            "api_key": integration.get("api_key"),
+            "api_secret": integration.get("api_secret"),
+            "shop_url": integration.get("shop_url")
+        }
+    
+    return {
+        "connected": False,
+        "message": "No Shopify integration found"
+    }
+
+@router.post("/integrations/shopify", response_model=ShopifyIntegrationResponse)
+async def connect_shopify(
+    integration: ShopifyIntegrationBase,
+    current_user: str = Depends(get_current_user)
+):
+    """Connect or update Shopify integration for current user"""
+
+    return await save_shopify_integration(current_user, integration.dict())
+
+@router.put("/integrations/shopify", response_model=ShopifyIntegrationResponse)
+async def disconnect_shopify(current_user: str = Depends(get_current_user)):
+    """Disconnect Shopify integration for current user"""
+
+    return await update_shopify_integration(current_user)
+
