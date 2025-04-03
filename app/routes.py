@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount
+from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount,RestaurantDetails
 from app.services import get_user_integrations, update_integration
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
 from app.utils import get_current_user
+from fastapi import HTTPException
 
 router = APIRouter()
 
@@ -164,3 +165,55 @@ async def disconnect_shopify(current_user: str = Depends(get_current_user)):
         "message": "Shopify integration disconnected successfully"
     }
 
+@router.post("/restaurant_details")
+async def create_or_update_restaurant_details(
+    details: RestaurantDetails, 
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create or update restaurant details for the authenticated user
+    """
+    try:
+        return await app.services.save_restaurant_details(details, current_user)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/restaurant_details")
+async def retrieve_restaurant_details(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retrieve restaurant details for the authenticated user
+    """
+    try:
+        details = await app.services.get_restaurant_details(current_user)
+        if not details:
+            # Return default structure if no details exist
+            return {
+                "restaurant_name": "",
+                "phone_number": "",
+                "twilio_number": "",
+                "address": "",
+                "website": "",
+                "email": current_user["user_email"],
+                "openingHours": {
+                    "monday": {"open": "9:00 AM", "close": "10:00 PM"},
+                    "tuesday": {"open": "9:00 AM", "close": "10:00 PM"},
+                    "wednesday": {"open": "9:00 AM", "close": "10:00 PM"},
+                    "thursday": {"open": "9:00 AM", "close": "10:00 PM"},
+                    "friday": {"open": "9:00 AM", "close": "11:00 PM"},
+                    "saturday": {"open": "10:00 AM", "close": "11:00 PM"},
+                    "sunday": {"open": "10:00 AM", "close": "9:00 PM"}
+                },
+                "features": {
+                    "takeReservations": False,
+                    "takeOrders": False,
+                    "provideMenuInfo": False,
+                    "handleComplaints": False
+                },
+                "greetingMessage": "Welcome to our restaurant! How can I assist you today?",
+                "endingMessage": "Thank you for calling us! Have a great day!"
+            }
+        return details
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

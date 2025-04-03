@@ -79,14 +79,19 @@ async def updated_user_email(new_email, current_user):
             raise HTTPException(status_code=401, detail="Invalid current password")
         
         # Update email in all collections
-        collections_to_update = [collection_user,collection_call_logs ,collection_integrations,collection_restaurant]  # Add other collections here if needed
+        collections_to_update = [collection_user, collection_call_logs, collection_integrations, collection_restaurant]  # Add other collections here if needed
         for collection in collections_to_update:
-            result = collection.update_many(
-                {"user_email": current_user["user_email"]},
-                {"$set": {"user_email": new_email.new_email}}
+            try:
+                result = collection.update_many(
+                    {"user_email": current_user["user_email"]},
+                    {"$set": {"user_email": new_email.new_email}}
             )
-            if result.modified_count == 0:
-                raise HTTPException(status_code=500, detail=f"Failed to update email in {collection.name}")
+                # Log a warning if no documents were updated in the collection
+                if result.modified_count == 0:
+                    print(f"Warning: No documents updated in {collection.name}")
+            except Exception as e:
+                # Log the exception and continue with the next collection
+                print(f"Error updating email in {collection.name}: {e}")
         
         return {"new_email": new_email.new_email}
     
@@ -156,6 +161,49 @@ async def deleted_user_account(delete_account, current_user):
     
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+async def get_restaurant_details(current_user):
+    """
+    Retrieve restaurant details for a specific user
+    """
+    restaurant_details = collection_restaurant.find_one(
+        {"user_email": current_user["user_email"]},
+        {"_id": 0}  # Exclude MongoDB's internal _id
+    )
+    return restaurant_details
+
+async def save_restaurant_details(RestaurantDetails, current_user):
+    """
+    Save restaurant details for a specific user
+    """
+    # Convert Pydantic model to dictionary and handle HttpUrl conversion
+    details_dict = RestaurantDetails.dict()
+    
+    # Convert HttpUrl to string if it exists
+    if 'website' in details_dict and details_dict['website']:
+        details_dict['website'] = str(details_dict['website'])
+    
+    # Add user email to the details
+    details_dict['user_email'] = current_user["user_email"]
+    
+    # Check if details already exist for this user
+    existing_details = collection_restaurant.find_one({"user_email": current_user["user_email"]})
+    
+    if existing_details:
+        # Update existing details
+        result = collection_restaurant.update_one(
+            {"user_email": current_user["user_email"]},
+            {"$set": details_dict}
+        )
+        if result.modified_count == 0:
+            return {"message": "No changes detected", "status": "unchanged"}
+        return {"message": "Restaurant details updated successfully", "status": "updated"}
+    else:
+        # Insert new details
+        result = collection_restaurant.insert_one(details_dict)
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to save restaurant details")
+        return {"message": "Restaurant details saved successfully", "status": "created"}
   
 async def get_call_logs_service(current_user):
     """
