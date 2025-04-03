@@ -340,53 +340,53 @@ async def request_password_reset(email: EmailStr):
     
     return {"message": "If your email is registered, a reset code has been sent"}
 
-async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_password: str):
-    """
-    Verify the reset code and update the user's password if valid.
+# async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_password: str):
+#     """
+#     Verify the reset code and update the user's password if valid.
     
-    Args:
-        email: The user's email address
-        code: The verification code
-        new_password: The new password
+#     Args:
+#         email: The user's email address
+#         code: The verification code
+#         new_password: The new password
         
-    Returns:
-        Dict containing success message
-    """
-    # Find the reset request
-    reset_request = collection_password_reset.find_one({
-        "email": email,
-        "code": code
-    })
+#     Returns:
+#         Dict containing success message
+#     """
+#     # Find the reset request
+#     reset_request = collection_password_reset.find_one({
+#         "email": email,
+#         "code": code
+#     })
     
-    if not reset_request:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+#     if not reset_request:
+#         raise HTTPException(status_code=400, detail="Invalid verification code")
     
-    # Check if the code has expired
-    if reset_request["expires_at"] < datetime.utcnow():
-        # Remove expired reset request
-        collection_password_reset.delete_one({"_id": reset_request["_id"]})
-        raise HTTPException(status_code=400, detail="Verification code has expired")
+#     # Check if the code has expired
+#     if reset_request["expires_at"] < datetime.utcnow():
+#         # Remove expired reset request
+#         collection_password_reset.delete_one({"_id": reset_request["_id"]})
+#         raise HTTPException(status_code=400, detail="Verification code has expired")
     
-    # Find the user
-    user = collection_user.find_one({"user_email": email})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+#     # Find the user
+#     user = collection_user.find_one({"user_email": email})
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
     
-    # Hash the new password
-    hashed_password = hash_password(new_password)
+#     # Hash the new password
+#     hashed_password = hash_password(new_password)
     
-    # Update the user's password
-    result = collection_user.update_one(
-        {"user_email": email},
-        {"$set": {"user_pw": hashed_password}}
-    )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=500, detail="Failed to update password")
+#     # Update the user's password
+#     result = collection_user.update_one(
+#         {"user_email": email},
+#         {"$set": {"user_pw": hashed_password}}
+#     )
+#     if result.modified_count == 0:
+#         raise HTTPException(status_code=500, detail="Failed to update password")
     
-    # Remove the reset request
-    collection_password_reset.delete_one({"_id": reset_request["_id"]})
+#     # Remove the reset request
+#     collection_password_reset.delete_one({"_id": reset_request["_id"]})
     
-    return {"message": "Password has been reset successfully"}
+#     return {"message": "Password has been reset successfully"}
 
 
 # Rate: $0.05 per minute (20 minutes per dollar)

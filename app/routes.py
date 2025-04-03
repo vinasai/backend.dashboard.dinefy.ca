@@ -230,26 +230,26 @@ async def get_twilio_number(current_user: User = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/forgot-password")
-async def forgot_password(request: PasswordResetRequest):
-    """
-    Request a password reset code.
-    """
-    return await app.services.request_password_reset(request.email)
+# @router.post("/forgot-password")
+# async def forgot_password(request: PasswordResetRequest):
+#     """
+#     Request a password reset code.
+#     """
+#     return await app.services.request_password_reset(request.email)
 
-@router.post("/reset-password")
-async def reset_password(request: VerifyResetCodeRequest):
-    """
-    Verify the reset code and reset the password.
-    """
-    if request.new_password != request.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
+# @router.post("/reset-password")
+# async def reset_password(request: VerifyResetCodeRequest):
+#     """
+#     Verify the reset code and reset the password.
+#     """
+#     if request.new_password != request.confirm_password:
+#         raise HTTPException(status_code=400, detail="Passwords do not match")
     
-    return await app.services.verify_reset_code_and_reset_password(
-        request.email,
-        request.code,
-        request.new_password
-    )
+#     return await app.services.verify_reset_code_and_reset_password(
+#         request.email,
+#         request.code,
+#         request.new_password
+#     )
     
 @router.get("/billing", response_model=app.models.BillingResponse)
 async def get_billing_info(current_user: dict = Depends(get_current_user)):
