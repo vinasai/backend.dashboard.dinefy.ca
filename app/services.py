@@ -8,8 +8,27 @@ from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer
-from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user
+from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset
 from jwt.exceptions import PyJWTError
+from fastapi import HTTPException
+from datetime import datetime, timedelta
+from pydantic import EmailStr
+import secrets
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+from app.config import MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM, MAIL_PORT, MAIL_SERVER, MAIL_FROM_NAME
+
+# Configure email
+# conf = ConnectionConfig(
+#     MAIL_USERNAME=MAIL_USERNAME,
+#     MAIL_PASSWORD=MAIL_PASSWORD,
+#     MAIL_FROM=MAIL_FROM,
+#     MAIL_PORT=MAIL_PORT,
+#     MAIL_SERVER=MAIL_SERVER,
+#     MAIL_FROM_NAME=MAIL_FROM_NAME,
+#     MAIL_TLS=True,
+#     MAIL_SSL=False,
+#     USE_CREDENTIALS=True
+# )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -253,9 +272,117 @@ async def update_integration(current_user: dict, integration_name: str, integrat
         }
         collection_integrations.insert_one(new_integration)
 
-async def update_user_email( new_email , current_user: dict):
-    existing_user = collection_user.find_one(
-        {"user_email": new_email.email}, 
-        {"_id": 0, "user_email": 1, "user_pw": 1}
+
+async def request_password_reset(email: EmailStr):
+    """
+    Generate a password reset code and store it in the database.
+    
+    Args:
+        email: The user's email address
+        
+    Returns:
+        Dict containing success message
+    """
+    # Check if user exists
+    user = collection_user.find_one({"user_email": email})
+    if not user:
+        # We don't want to reveal if an email exists in the system
+        # So we return success regardless, but only generate a code if the user exists
+        return {"message": "If your email is registered, a reset code has been sent"}
+    
+    # Generate a 6-digit verification code
+    verification_code = ''.join(secrets.choice('0123456789') for _ in range(6))
+    
+    # Store the code in the database with expiration time (5 minutes from now)
+    expiration_time = datetime.utcnow() + timedelta(minutes=5)
+    
+    # Remove any existing reset requests for this email
+    collection_password_reset.delete_many({"email": email})
+    
+    # Insert the new reset request
+    collection_password_reset.insert_one({
+        "email": email,
+        "code": verification_code,
+        "expires_at": expiration_time,
+        "created_at": datetime.utcnow()
+    })
+    
+    # For development, we'll just print it
+    print(f"Password reset code for {email}: {verification_code}")
+    
+    # Send the verification code to the user's email
+    # message = MessageSchema(
+    #     subject="Password Reset Verification Code",
+    #     recipients=[email],
+    #     body=f"""
+    #     <html>
+    #     <body>
+    #         <h1>Password Reset Request</h1>
+    #         <p>You have requested to reset your password. Use the verification code below:</p>
+    #         <h2>{verification_code}</h2>
+    #         <p>This code will expire in 5 minutes.</p>
+    #         <p>If you did not request a password reset, please ignore this email.</p>
+    #     </body>
+    #     </html>
+    #     """,
+    #     subtype="html"
+    # )
+    
+    # fm = FastMail(conf)
+    # try:
+    #     await fm.send_message(message)
+    #     print(f"Password reset code sent to {email}")
+    # except Exception as e:
+    #     print(f"Failed to send email: {e}")
+    #     # You may want to handle this error more gracefully
+    
+    return {"message": "If your email is registered, a reset code has been sent"}
+
+async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_password: str):
+    """
+    Verify the reset code and update the user's password if valid.
+    
+    Args:
+        email: The user's email address
+        code: The verification code
+        new_password: The new password
+        
+    Returns:
+        Dict containing success message
+    """
+    # Find the reset request
+    reset_request = collection_password_reset.find_one({
+        "email": email,
+        "code": code
+    })
+    
+    if not reset_request:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    # Check if the code has expired
+    if reset_request["expires_at"] < datetime.utcnow():
+        # Remove expired reset request
+        collection_password_reset.delete_one({"_id": reset_request["_id"]})
+        raise HTTPException(status_code=400, detail="Verification code has expired")
+    
+    # Find the user
+    user = collection_user.find_one({"user_email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Hash the new password
+    hashed_password = hash_password(new_password)
+    
+    # Update the user's password
+    result = collection_user.update_one(
+        {"user_email": email},
+        {"$set": {"user_pw": hashed_password}}
     )
     
+    if result.modified_count == 0:
+        raise HTTPException(status_code=500, detail="Failed to update password")
+    
+    # Remove the reset request
+    collection_password_reset.delete_one({"_id": reset_request["_id"]})
+    
+    return {"message": "Password has been reset successfully"}
