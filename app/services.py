@@ -615,3 +615,152 @@ async def get_user_twilio_number(user_email: str) -> str:
         return ""
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+async def get_call_data(start_date, end_date, user_email):
+    """
+    Retrieve call data for a specific date range and user.
+    Returns formatted data for the Overview dashboard.
+    """
+    try:
+        # Convert string dates to datetime objects for MongoDB query
+        start = datetime.combine(start_date, datetime.min.time())
+        end = datetime.combine(end_date, datetime.max.time())
+        
+        # Query call logs within the date range
+        pipeline = [
+            {
+                "$match": {
+                    "user_email": user_email,
+                    "call_date": {"$gte": start, "$lte": end}
+                }
+            },
+            {
+                "$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$call_date"}},
+                    "calls": {"$sum": 1},
+                    "minutes": {"$sum": "$duration_minutes"},
+                    "orders": {"$sum": {"$cond": [{"$eq": ["$order_placed", True]}, 1, 0]}},
+                    "satisfaction_sum": {"$sum": "$satisfaction_rating"},
+                    "satisfaction_count": {"$sum": {"$cond": [{"$gt": ["$satisfaction_rating", 0]}, 1, 0]}}
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "date": "$_id",
+                    "calls": 1,
+                    "minutes": 1,
+                    "orders": 1,
+                    "satisfaction": {
+                        "$cond": [
+                            {"$gt": ["$satisfaction_count", 0]},
+                            {"$divide": ["$satisfaction_sum", "$satisfaction_count"]},
+                            0
+                        ]
+                    }
+                }
+            },
+            {
+                "$sort": {"date": 1}
+            }
+        ]
+        
+        call_data = list(collection_call_logs.aggregate(pipeline))
+        
+        # If no data is found for some dates in the range, fill with zeros
+        date_range = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime("%Y-%m-%d")
+            existing_data = next((item for item in call_data if item["date"] == date_str), None)
+            
+            if existing_data:
+                date_range.append(existing_data)
+            else:
+                date_range.append({
+                    "date": date_str,
+                    "calls": 0,
+                    "minutes": 0,
+                    "orders": 0,
+                    "satisfaction": 0
+                })
+            
+            current_date += timedelta(days=1)
+
+        # Calculate overall statistics
+        total_calls = sum(item["calls"] for item in call_data)
+        total_minutes = sum(item["minutes"] for item in call_data)
+        total_orders = sum(item["orders"] for item in call_data)
+        
+        # Calculate average satisfaction
+        satisfaction_values = [item["satisfaction"] for item in call_data if item["satisfaction"] > 0]
+        avg_satisfaction = sum(satisfaction_values) / len(satisfaction_values) if satisfaction_values else 0
+        
+        # Get previous period data for comparison
+        days_diff = (end_date - start_date).days + 1
+        prev_end = start_date - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=days_diff - 1)
+        
+        # Query previous period
+        prev_pipeline = [
+            {
+                "$match": {
+                    "user_email": user_email,
+                    "call_date": {"$gte": datetime.combine(prev_start, datetime.min.time()), 
+                                 "$lte": datetime.combine(prev_end, datetime.max.time())}
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "prev_calls": {"$sum": 1},
+                    "prev_minutes": {"$sum": "$duration_minutes"},
+                    "prev_orders": {"$sum": {"$cond": [{"$eq": ["$order_placed", True]}, 1, 0]}},
+                    "prev_satisfaction_sum": {"$sum": "$satisfaction_rating"},
+                    "prev_satisfaction_count": {"$sum": {"$cond": [{"$gt": ["$satisfaction_rating", 0]}, 1, 0]}}
+                }
+            }
+        ]
+        
+        prev_data = list(collection_call_logs.aggregate(prev_pipeline))
+        prev_period = prev_data[0] if prev_data else {
+            "prev_calls": 0, 
+            "prev_minutes": 0, 
+            "prev_orders": 0,
+            "prev_satisfaction_sum": 0,
+            "prev_satisfaction_count": 0
+        }
+        
+        # Calculate percentage changes
+        calls_change = calculate_percent_change(total_calls, prev_period.get("prev_calls", 0))
+        minutes_change = calculate_percent_change(total_minutes, prev_period.get("prev_minutes", 0))
+        orders_change = calculate_percent_change(total_orders, prev_period.get("prev_orders", 0))
+        
+        prev_avg_satisfaction = 0
+        if prev_period.get("prev_satisfaction_count", 0) > 0:
+            prev_avg_satisfaction = prev_period.get("prev_satisfaction_sum", 0) / prev_period.get("prev_satisfaction_count", 0)
+        
+        satisfaction_change = calculate_percent_change(avg_satisfaction, prev_avg_satisfaction)
+        
+        stats = {
+            "total_calls": total_calls,
+            "total_minutes": total_minutes,
+            "total_orders": total_orders,
+            "avg_satisfaction": round(avg_satisfaction, 1),
+            "calls_change": calls_change,
+            "minutes_change": minutes_change,
+            "orders_change": orders_change,
+            "satisfaction_change": satisfaction_change
+        }
+        
+        return {"data": date_range, "stats": stats}
+        
+    except Exception as e:
+        print(f"Error getting call data: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving call data: {str(e)}")
+
+def calculate_percent_change(current, previous):
+    """Calculate percentage change between two values"""
+    if previous == 0:
+        return 100 if current > 0 else 0
+    return round(((current - previous) / previous) * 100, 1)

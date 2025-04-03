@@ -7,6 +7,8 @@ from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
 from app.utils import get_current_user
 from fastapi import HTTPException
+from fastapi import Query
+from datetime import date, datetime, timedelta
 
 router = APIRouter()
 
@@ -278,3 +280,23 @@ async def buy_minutes(purchase_data: app.models.PurchaseMinutes, current_user: d
     Purchase additional minutes using the specified payment method
     """
     return await app.services.purchase_minutes(purchase_data, current_user)
+
+
+
+@router.get("/overview/call-data", response_model=app.models.CallDataResponse)
+async def get_overview_call_data(
+    start_date: date = Query(None), 
+    end_date: date = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get call data for the overview dashboard.
+    If dates are not provided, defaults to last 7 days.
+    """
+    if not start_date:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=6)  # Last 7 days including today
+    elif not end_date:
+        end_date = start_date + timedelta(days=6)  # 7 days from start date
+        
+    return await app.services.get_call_data(start_date, end_date, current_user["user_email"])

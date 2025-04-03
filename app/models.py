@@ -1,7 +1,7 @@
 #moedels.py
 from pydantic import BaseModel, EmailStr, HttpUrl, Field, validator
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 import re
 import uuid
 
@@ -213,3 +213,19 @@ class PurchaseResponse(BaseModel):
     amount: Optional[float] = None
     minutes: Optional[int] = None
     date: Optional[str] = None
+    
+class CallDataEntry(BaseModel):
+    date: str
+    calls: int
+    minutes: int
+    orders: int
+    satisfaction: float
+
+class CallDataResponse(BaseModel):
+    data: List[CallDataEntry]
+    stats: dict
+
+class DateRangeRequest(BaseModel):
+    start_date: date
+    end_date: date
+    
