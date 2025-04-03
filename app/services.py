@@ -380,7 +380,6 @@ async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_p
         {"user_email": email},
         {"$set": {"user_pw": hashed_password}}
     )
-    
     if result.modified_count == 0:
         raise HTTPException(status_code=500, detail="Failed to update password")
     
@@ -606,3 +605,13 @@ async def delete_payment_method(payment_method_index, current_user):
     )
     
     return {"message": "Payment method removed successfully"}
+
+async def get_user_twilio_number(user_email: str) -> str:
+    """Get the Twilio number associated with a user's email"""
+    try:
+        user = collection_user.find_one({"user_email": user_email})
+        if user:
+            return user["twilio_number"]
+        return ""
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
