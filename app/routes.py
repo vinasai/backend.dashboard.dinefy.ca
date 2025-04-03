@@ -195,15 +195,15 @@ async def retrieve_restaurant_details(
                 "twilio_number": "",
                 "address": "",
                 "website": "",
-                "email": current_user["user_email"],
+                "email": "",
                 "openingHours": {
-                    "monday": {"open": "9:00 AM", "close": "10:00 PM"},
-                    "tuesday": {"open": "9:00 AM", "close": "10:00 PM"},
-                    "wednesday": {"open": "9:00 AM", "close": "10:00 PM"},
-                    "thursday": {"open": "9:00 AM", "close": "10:00 PM"},
-                    "friday": {"open": "9:00 AM", "close": "11:00 PM"},
-                    "saturday": {"open": "10:00 AM", "close": "11:00 PM"},
-                    "sunday": {"open": "10:00 AM", "close": "9:00 PM"}
+                    "monday": {"open": "", "close": ""},
+                    "tuesday": {"open": "", "close": ""},
+                    "wednesday": {"open": "", "close": ""},
+                    "thursday": {"open": "", "close": ""},
+                    "friday": {"open": "", "close": ""},
+                    "saturday": {"open":"", "close": ""},
+                    "sunday": {"open": "", "close": ""}
                 },
                 "features": {
                     "takeReservations": False,
@@ -211,9 +211,20 @@ async def retrieve_restaurant_details(
                     "provideMenuInfo": False,
                     "handleComplaints": False
                 },
-                "greetingMessage": "Welcome to our restaurant! How can I assist you today?",
-                "endingMessage": "Thank you for calling us! Have a great day!"
+                "greetingMessage": "",
+                "endingMessage": ""
             }
         return details
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/user/twilio_number")
+async def get_twilio_number(current_user: User = Depends(get_current_user)):
+    """
+    Get the Twilio number for the current user
+    """
+    try:
+        twilio_number = await app.services.get_user_twilio_number(current_user["user_email"])
+        return {"twilio_number": twilio_number}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

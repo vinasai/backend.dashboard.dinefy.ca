@@ -259,3 +259,12 @@ async def update_user_email( new_email , current_user: dict):
         {"_id": 0, "user_email": 1, "user_pw": 1}
     )
     
+async def get_user_twilio_number(user_email: str) -> str:
+    """Get the Twilio number associated with a user's email"""
+    try:
+        user = collection_user.find_one({"user_email": user_email})
+        if user:
+            return user["twilio_number"]
+        return ""
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
