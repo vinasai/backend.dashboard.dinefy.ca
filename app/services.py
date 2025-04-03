@@ -8,7 +8,7 @@ from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer
-from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset
+from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset,Collection_billing
 from jwt.exceptions import PyJWTError
 from fastapi import HTTPException
 from datetime import datetime, timedelta
@@ -16,6 +16,8 @@ from pydantic import EmailStr
 import secrets
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from app.config import MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM, MAIL_PORT, MAIL_SERVER, MAIL_FROM_NAME
+import uuid
+import re
 
 # Configure email
 # conf = ConnectionConfig(
@@ -386,3 +388,221 @@ async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_p
     collection_password_reset.delete_one({"_id": reset_request["_id"]})
     
     return {"message": "Password has been reset successfully"}
+
+
+# Rate: $0.05 per minute (20 minutes per dollar)
+RATE_PER_MINUTE = 0.05
+
+async def get_user_billing_info(current_user):
+    """
+    Get billing information for a user including payment methods, payment history, and usage
+    """
+    user_email = current_user["user_email"]
+    
+    # Get user from database
+    user = Collection_billing.find_one({"user_email": user_email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Extract billing information
+    payment_methods = user.get("payment_methods", [])
+    payment_history = user.get("payment_history", [])
+    
+    # For now, we'll generate mock usage data until actual usage tracking is implemented
+    usage_data = [
+        {"date": "2025-01", "minutes": 120},
+        {"date": "2025-02", "minutes": 145},
+        {"date": "2025-03", "minutes": 180}
+    ]
+    
+    # Calculate remaining minutes
+    total_minutes_purchased = sum(payment.get("minutes", 0) for payment in payment_history)
+    total_minutes_used = sum(usage.get("minutes", 0) for usage in usage_data)
+    remaining_minutes = total_minutes_purchased - total_minutes_used
+    
+    return {
+        "remaining_minutes": remaining_minutes,
+        "total_minutes": total_minutes_purchased,
+        "payment_methods": payment_methods,
+        "payment_history": payment_history,
+        "usage_data": usage_data
+    }
+
+async def add_payment_method(payment_method_data, current_user):
+    """
+    Add a payment method for a user with enhanced validation
+    """
+    user_email = current_user["user_email"]
+    
+    # Enhanced card number validation
+    card_number = payment_method_data.card_number.replace(" ", "")  # Remove spaces
+    if not card_number.isdigit() or len(card_number) < 13 or len(card_number) > 19:
+        raise HTTPException(status_code=400, detail="Invalid card number. Card number must be between 13 and 19 digits")
+    
+    # Validate expiry date format (MM/YY)
+    expiry_date = payment_method_data.expiry_date
+    if not re.match(r'^\d{2}/\d{2}$', expiry_date):
+        raise HTTPException(status_code=400, detail="Invalid expiry date format. Please use MM/YY format")
+    
+    # Validate month and year
+    try:
+        month, year = expiry_date.split('/')
+        month_int = int(month)
+        year_int = int("20" + year)
+        
+        if month_int < 1 or month_int > 12:
+            raise HTTPException(status_code=400, detail="Invalid month. Month must be between 01 and 12")
+        
+        # Check if card is expired
+        current_date = datetime.now()
+        current_year = current_date.year
+        current_month = current_date.month
+        
+        if year_int < current_year or (year_int == current_year and month_int < current_month):
+            raise HTTPException(status_code=400, detail="Card has expired")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    
+    # Validate CVV
+    cvc = payment_method_data.cvc
+    if not cvc.isdigit() or len(cvc) < 3 or len(cvc) > 4:
+        raise HTTPException(status_code=400, detail="Invalid CVC. CVV must be 3 or 4 digits")
+    
+    # Check if cardholder name is provided
+    if not payment_method_data.cardholder_name.strip():
+        raise HTTPException(status_code=400, detail="Cardholder name is required")
+    
+    # Mask the card number for storage (keep only last 4 digits)
+    masked_card_number = "*" * (len(card_number) - 4) + card_number[-4:]
+    
+    # Create a payment method record
+    payment_method = {
+        "cardholder_name": payment_method_data.cardholder_name,
+        "card_number": masked_card_number,  # Store masked version
+        "expiry_date": payment_method_data.expiry_date,
+        "cvc": "***"  # Don't store actual CVC
+    }
+    
+    # Check if user already exists in billing collection
+    user = Collection_billing.find_one({"user_email": user_email})
+    
+    if user:
+        # Add payment method to existing user's account
+        result = Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$push": {"payment_methods": payment_method}}
+        )
+    else:
+        # Create new user record with payment method
+        result = Collection_billing.insert_one({
+            "user_email": user_email,
+            "payment_methods": [payment_method],
+            "payment_history": []
+        })
+        
+    if (user and result.modified_count == 0) or (not user and not result.inserted_id):
+        raise HTTPException(status_code=500, detail="Failed to add payment method")
+    
+    return {"message": "Payment method added successfully"}
+
+async def purchase_minutes(purchase_data, current_user):
+    """
+    Purchase minutes using the specified payment method
+    """
+    user_email = current_user["user_email"]
+    
+    # Get user from database
+    user = Collection_billing.find_one({"user_email": user_email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if user has payment methods
+    payment_methods = user.get("payment_methods", [])
+    if not payment_methods:
+        raise HTTPException(status_code=400, detail="No payment method available")
+    
+    # Validate payment method selection
+    try:
+        payment_method_index = int(purchase_data.payment_method_id)
+        if payment_method_index < 0 or payment_method_index >= len(payment_methods):
+            raise HTTPException(status_code=400, detail="Invalid payment method selected")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid payment method ID")
+    
+    # Get the selected payment method
+    selected_payment_method = payment_methods[payment_method_index]
+    
+    # Calculate minutes based on amount
+    amount = purchase_data.amount
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+        
+    minutes = int(amount / RATE_PER_MINUTE)
+    
+    # Generate a purchase ID
+    purchase_id = f"PUR-{uuid.uuid4().hex[:8].upper()}"
+    
+    # Record the transaction
+    payment_record = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "purchase_id": purchase_id,
+        "amount": amount,
+        "minutes": minutes
+    }
+    
+    # Add to payment history
+    result = Collection_billing.update_one(
+        {"user_email": user_email},
+        {"$push": {"payment_history": payment_record}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=500, detail="Failed to record purchase")
+    
+    return {
+        "success": True,
+        "message": f"Successfully purchased {minutes} minutes",
+        "purchase_id": purchase_id,
+        "amount": amount,
+        "minutes": minutes,
+        "date": payment_record["date"]
+    }
+
+async def delete_payment_method(payment_method_index, current_user):
+    """
+    Delete a payment method by its index in the array
+    """
+    user_email = current_user["user_email"]
+    
+    # Convert index to integer
+    try:
+        index = int(payment_method_index)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payment method index")
+    
+    # Get user from database
+    user = Collection_billing.find_one({"user_email": user_email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if payment method exists at the specified index
+    payment_methods = user.get("payment_methods", [])
+    if index < 0 or index >= len(payment_methods):
+        raise HTTPException(status_code=404, detail="Payment method not found")
+    
+    # Use MongoDB's array update operators to remove the element at the specified index
+    result = Collection_billing.update_one(
+        {"user_email": user_email},
+        {"$unset": {f"payment_methods.{index}": 1}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=500, detail="Failed to remove payment method")
+    
+    # Now pull any null elements to clean up the array
+    Collection_billing.update_one(
+        {"user_email": user_email},
+        {"$pull": {"payment_methods": None}}
+    )
+    
+    return {"message": "Payment method removed successfully"}

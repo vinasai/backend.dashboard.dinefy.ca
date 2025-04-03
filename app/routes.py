@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount,RestaurantDetails,PasswordResetRequest, VerifyResetCodeRequest
+import app.models
 from app.services import get_user_integrations, update_integration
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
@@ -239,3 +240,31 @@ async def reset_password(request: VerifyResetCodeRequest):
         request.code,
         request.new_password
     )
+    
+@router.get("/billing", response_model=app.models.BillingResponse)
+async def get_billing_info(current_user: dict = Depends(get_current_user)):
+    """
+    Get a user's billing information including payment methods, history, and usage
+    """
+    return await app.services.get_user_billing_info(current_user)
+
+@router.post("/payment-methods")
+async def add_new_payment_method(payment_method: app.models.AddPaymentMethod, current_user: dict = Depends(get_current_user)):
+    """
+    Add a new payment method for the user with enhanced validation
+    """
+    return await app.services.add_payment_method(payment_method, current_user)
+
+@router.delete("/payment-methods/{payment_method_index}")
+async def remove_payment_method(payment_method_index: str, current_user: dict = Depends(get_current_user)):
+    """
+    Remove a payment method by its index
+    """
+    return await app.services.delete_payment_method(payment_method_index, current_user)
+
+@router.post("/purchase", response_model=app.models.PurchaseResponse)
+async def buy_minutes(purchase_data: app.models.PurchaseMinutes, current_user: dict = Depends(get_current_user)):
+    """
+    Purchase additional minutes using the specified payment method
+    """
+    return await app.services.purchase_minutes(purchase_data, current_user)

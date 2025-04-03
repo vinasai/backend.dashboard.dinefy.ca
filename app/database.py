@@ -10,6 +10,7 @@ collection_user = database["users"]
 collection_restaurant = database['restaurant_details']
 collection_integrations = database["intergrations"]
 collection_call_logs = database['call_logs']
+Collection_billing = database['billing']
 
 # Add this new collection
 collection_password_reset = database["password_reset"]
