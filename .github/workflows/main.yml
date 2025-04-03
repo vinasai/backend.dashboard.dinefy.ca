@@ -69,7 +69,8 @@ jobs:
             # Restart PM2 process or start it if not running
             echo "Restarting PM2 process for backend..."
             cd "$SERVER_PATH"/app
-            pm2 describe dashboard.dinefy.ca-backend >/dev/null 2>&1 && pm2 restart dashboard.dinefy.ca-backend || pm2 start "uvicorn main:app --host 0.0.0.0 --port 5005 --workers 4" --name dashboard.dinefy.ca-backend
+            pm2 describe dashboard.dinefy.ca-backend >/dev/null 2>&1 && pm2 restart dashboard.dinefy.ca-backend --update-env || pm2 start "uvicorn main:app --host 0.0.0.0 --port 5005 --workers 4" --name dashboard.dinefy.ca-backend
+            pm2 save
 
             # Restart Nginx (if you have a reverse proxy)
             echo "Restarting Nginx..."
