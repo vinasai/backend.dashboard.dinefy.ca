@@ -1,0 +1,78 @@
+name: backend.dashboard.dinefy.ca deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          # Create SSH directory and set up private key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Add GitHub's host key to known_hosts to avoid verification prompts
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+          # Test the SSH connection (this may print a welcome message)
+          ssh -o StrictHostKeyChecking=no -T ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+
+      - name: Deploy to Server
+        run: |
+          SERVER_USER=${{ secrets.SSH_USER }}
+          SERVER_IP=${{ secrets.SSH_HOST }}
+          SERVER_PATH=${{ secrets.WORK_DIR }}
+          REPO_URL="git@github.com:vinasai/backend.dashboard.dinefy.ca.git"
+          MAIN_BRANCH="main"
+
+          # Connect to the server via SSH and run deployment commands
+          ssh -i ~/.ssh/id_rsa $SERVER_USER@$SERVER_IP "SERVER_PATH='$SERVER_PATH' REPO_URL='$REPO_URL' MAIN_BRANCH='$MAIN_BRANCH' bash -s" << 'ENDSSH'
+            set -e  # Exit immediately if any command fails
+
+            # Ensure the remote SSH known_hosts is set up
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+            # Create a temporary directory for cloning
+            TEMP_DIR="/tmp/backend.dashboard.dinefy.ca-deploy"
+            rm -rf "$TEMP_DIR"
+            mkdir -p "$TEMP_DIR"
+
+            # Clone the repository to the temporary directory
+            echo "Cloning repository..."
+            git clone "$REPO_URL" "$TEMP_DIR"
+
+            # Create the server directory if it doesn't exist
+            mkdir -p "$SERVER_PATH"
+
+            # Copy all files from temp directory to server path
+            echo "Copying files to server directory..."
+            cp -r "$TEMP_DIR"/* "$SERVER_PATH/"
+            cp -r "$TEMP_DIR"/.git "$SERVER_PATH/"
+
+            # Clean up temporary directory
+            rm -rf "$TEMP_DIR"
+
+            echo "Installing dependencies..."
+            cd "$SERVER_PATH"
+            python3 -m venv venv  # Create a virtual environment
+            source venv/bin/activate  # Activate the virtual environment
+            pip install -r requirements.txt  # Install backend dependencies
+
+
+            # Restart PM2 process or start it if not running
+            echo "Restarting PM2 process for backend..."
+            cd "$SERVER_PATH"/app
+            pm2 describe dashboard.dinefy.ca-backend >/dev/null 2>&1 && pm2 restart dashboard.dinefy.ca-backend || pm2 start "uvicorn main:app --host 0.0.0.0 --port 5005 --workers 4" --name dashboard.dinefy.ca-backend
+
+            # Restart Nginx (if you have a reverse proxy)
+            echo "Restarting Nginx..."
+            sudo systemctl restart nginx
+
+          ENDSSH
