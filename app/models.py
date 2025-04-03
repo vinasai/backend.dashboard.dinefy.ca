@@ -13,6 +13,24 @@ class User(BaseModel):
     user_pw:str
     twilio_number:str
 
+class UpdateEmail(BaseModel):
+    new_email: str
+    confirm_password: str
+    
+class ChangePassword(BaseModel):
+    currentPassword: str
+    newPassword: str
+    confirmPassword: str
+
+class PasswordChangeResponse(BaseModel):
+    message: str
+    
+class DeleteAccount(BaseModel):
+    CurrentEmail: str
+
+class DeleteAccountResponse(BaseModel):
+    message: str
+
 class TimeRange(BaseModel):
     open: str
     close: str

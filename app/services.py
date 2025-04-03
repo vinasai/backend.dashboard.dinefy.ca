@@ -7,8 +7,9 @@ from fastapi import HTTPException
 from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from app.database import collection_restaurant, collection_call_logs ,collection_integrations
+from fastapi.security import OAuth2PasswordBearer
+from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user
+from jwt.exceptions import PyJWTError
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -58,74 +59,120 @@ def login_user_manual(user_login, ACCESS_TOKEN_EXPIRE_MINUTES):
 
     return {"access_token": access_token}
 
-async def get_restaurant_details(current_user):
+async def updated_user_email(new_email, current_user):
     """
-    Retrieve restaurant details for a specific user
+    Update user email endpoint.
+    Requires current password for verification.
     """
-    restaurant_details = collection_restaurant.find_one(
-        {"user_email": current_user["user_email"]},
-        {"_id": 0}  # Exclude MongoDB's internal _id
-    )
-    return restaurant_details
+    try:
+        # Validate request data
+        if not new_email.new_email or not new_email.confirm_password:
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # Find user in database
+        user = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Verify current password
+        if not verify_password(new_email.confirm_password, user["user_pw"]):
+            raise HTTPException(status_code=401, detail="Invalid current password")
+        
+        # Update email in all collections
+        collections_to_update = [collection_user,collection_call_logs ,collection_integrations,collection_restaurant]  # Add other collections here if needed
+        for collection in collections_to_update:
+            result = collection.update_many(
+                {"user_email": current_user["user_email"]},
+                {"$set": {"user_email": new_email.new_email}}
+            )
+            if result.modified_count == 0:
+                raise HTTPException(status_code=500, detail=f"Failed to update email in {collection.name}")
+        
+        return {"new_email": new_email.new_email}
+    
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
 
-async def save_restaurant_details(RestaurantDetails, current_user):
+async def changed_user_password(new_password, current_user):
     """
-    Save restaurant details for a specific user
+    Change user password endpoint.
+    Requires current password for verification.
     """
-    # Convert Pydantic model to dictionary and handle HttpUrl conversion
-    details_dict = RestaurantDetails.dict()
-    
-    # Convert HttpUrl to string if it exists
-    if 'website' in details_dict and details_dict['website']:
-        details_dict['website'] = str(details_dict['website'])
-    
-    # Add user email to the details
-    details_dict['user_email'] = current_user["user_email"]
-    
-    # Check if details already exist for this user
-    existing_details = collection_restaurant.find_one({"user_email": current_user["user_email"]})
-    
-    if existing_details:
-        # Update existing details
-        result = collection_restaurant.update_one(
+    try:
+        # Validate request data
+        if not new_password.newPassword or not new_password.confirmPassword:
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # Find user in database
+        user = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Verify current password
+        if not verify_password(new_password.currentPassword, user["user_pw"]):
+            raise HTTPException(status_code=401, detail="Invalid current password")
+        
+        # Hash the new password
+        hashed_new_password = hash_password(new_password.newPassword)
+        
+        # Update password in the user collection only
+        result = collection_user.update_one(
             {"user_email": current_user["user_email"]},
-            {"$set": details_dict}
+            {"$set": {"user_pw": hashed_new_password}}
         )
         if result.modified_count == 0:
-            return {"message": "No changes detected", "status": "unchanged"}
-        return {"message": "Restaurant details updated successfully", "status": "updated"}
-    else:
-        # Insert new details
-        result = collection_restaurant.insert_one(details_dict)
-        if not result.inserted_id:
-            raise HTTPException(status_code=500, detail="Failed to save restaurant details")
-        return {"message": "Restaurant details saved successfully", "status": "created"}
+            raise HTTPException(status_code=500, detail="Failed to update password")
+        
+        return {"message": "Password changed successfully"}
     
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    
+async def deleted_user_account(delete_account, current_user):
+    """
+    Delete user account endpoint.
+    Requires current password for verification.
+    """
+    try:
+        # Validate request data
+        if not delete_account.CurrentEmail:
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # Find user in database
+        user = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Verify current email matches the user's email
+        if delete_account.CurrentEmail != current_user["user_email"]:
+            raise HTTPException(status_code=401, detail="Invalid current email")
+        
+        # Delete user from the user collection only
+        result = collection_user.delete_one({"user_email": current_user["user_email"]})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=500, detail="Failed to delete account from the user collection")
+        
+        return {"message": "Account deleted successfully"}
+    
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+  
 async def get_call_logs_service(current_user):
     """
-    Retrieve call logs for the current user's Twilio number
+    Retrieve call logs for the current user's user email.
     """
-    # Fetch the user's Twilio number from the restaurant details
-    restaurant_details = await get_restaurant_details(current_user)
-    if not restaurant_details:
-        return []  # Return empty array instead of 404
-    
-    twilio_number = restaurant_details.get("twilio_number")
-    print(twilio_number)
-   
-    if not twilio_number:
-        return []  # Return empty array instead of 404
-   
-    # Query the call logs collection for the given Twilio number
+
+    # Query the call logs collection for the given user email
     call_logs = collection_call_logs.find(
-        {"twilio_number": twilio_number},
+        {"user_email": current_user["user_email"]},
         {"_id": 0}  # Exclude MongoDB's internal _id
     ).sort("timestamp", DESCENDING)  # Sort by timestamp in descending order
-   
+
     # Convert the cursor to a list
     call_logs_list = list(call_logs)
-   
-    return call_logs_list
+
+    # Return the call logs list or an empty array if no logs are found
+    return call_logs_list if call_logs_list else []
   
 async def get_user_integrations(current_user: dict):
     """Get all integrations for a user"""
@@ -157,4 +204,10 @@ async def update_integration(current_user: dict, integration_name: str, integrat
             }
         }
         collection_integrations.insert_one(new_integration)
-        
+
+async def update_user_email( new_email , current_user: dict):
+    existing_user = collection_user.find_one(
+        {"user_email": new_email.email}, 
+        {"_id": 0, "user_email": 1, "user_pw": 1}
+    )
+    
