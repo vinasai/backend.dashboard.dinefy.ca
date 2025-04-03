@@ -1,20 +1,10 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount
-from app.services import  get_call_logs_service , get_user_integrations, update_integration,updated_user_email,changed_user_password
+from app.services import get_user_integrations, update_integration
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 import app.services
-from app.utils import get_current_user, hash_password, verify_password, create_access_token
-from typing import List
-from app.database import collection_user
-from fastapi import HTTPException
-from app.config import SECRET_KEY, ALGORITHM
-from datetime import timedelta
-import jwt
-from jwt.exceptions import PyJWTError
-from jwt import decode as jwt_decode, encode as jwt_encode
-
-
+from app.utils import get_current_user
 
 router = APIRouter()
 
