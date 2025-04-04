@@ -11,11 +11,10 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# origins = [
-#     "https://localhost:3000",  
-#     "http://localhost:3000",
-#     "http://127.0.0.1:5500"   
-# ]
+origins = [
+   "https://dashboard.dinefy.ca",
+   "http://localhost:8000"   
+]
 
 app.add_middleware(
     CORSMiddleware,
