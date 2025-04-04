@@ -616,10 +616,6 @@ async def get_user_twilio_number(user_email: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-from datetime import datetime, timedelta
-from fastapi import HTTPException
-
-# Ensure you have this helper function
 def calculate_percent_change(current, previous):
     if previous == 0:
         return 100 if current > 0 else 0
@@ -783,7 +779,7 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
                                 },
                                 "in": {
                                     "$add": [
-                                        {"$multiply": [{"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}}, 60]},
+                                        {"$multiply": [{"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}}, 1]},
                                         {"$toInt": {"$arrayElemAt": ["$$time_parts", 1]}}
                                     ]
                                 }
