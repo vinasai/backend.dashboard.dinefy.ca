@@ -68,7 +68,7 @@ class CallLogs(BaseModel):
     status: str
     date_time: str
     phone_number: str
-    duration: str
+    duration: float
     satisfaction: int
     
     class CallDetails(BaseModel):
@@ -218,7 +218,7 @@ class PurchaseResponse(BaseModel):
 class CallDataEntry(BaseModel):
     date: str
     calls: int
-    minutes: int
+    minutes: float
     orders: int
     satisfaction: float
 

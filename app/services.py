@@ -616,11 +616,6 @@ async def get_user_twilio_number(user_email: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def calculate_percent_change(current, previous):
-    if previous == 0:
-        return 100 if current > 0 else 0
-    return round(((current - previous) / previous) * 100, 2)
-
 async def get_call_data(start_date: datetime.date, end_date: datetime.date, user_email: str):
     try:
         start = datetime.combine(start_date, datetime.min.time())
@@ -674,9 +669,19 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
                                     "time_parts": {"$split": ["$duration", ":"]}
                                 },
                                 "in": {
-                                    "$add": [
-                                        {"$multiply": [{"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}}, 60]},
-                                        {"$toInt": {"$arrayElemAt": ["$$time_parts", 1]}}
+                                    "$divide": [
+                                        {
+                                            "$add": [
+                                                {
+                                                    "$multiply": [
+                                                        {"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}},
+                                                        60
+                                                    ]
+                                                },
+                                                {"$toInt": {"$arrayElemAt": ["$$time_parts", 1]}}
+                                            ]
+                                        },
+                                        60
                                     ]
                                 }
                             }
@@ -778,9 +783,19 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
                                     "time_parts": {"$split": ["$duration", ":"]}
                                 },
                                 "in": {
-                                    "$add": [
-                                        {"$multiply": [{"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}}, 1]},
-                                        {"$toInt": {"$arrayElemAt": ["$$time_parts", 1]}}
+                                    "$divide": [
+                                        {
+                                            "$add": [
+                                                {
+                                                    "$multiply": [
+                                                        {"$toInt": {"$arrayElemAt": ["$$time_parts", 0]}},
+                                                        60
+                                                    ]
+                                                },
+                                                {"$toInt": {"$arrayElemAt": ["$$time_parts", 1]}}
+                                            ]
+                                        },
+                                        60
                                     ]
                                 }
                             }
@@ -823,6 +838,7 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
     except Exception as e:
         print(f"Error getting call data: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving call data: {str(e)}")
+
 
 def calculate_percent_change(current, previous):
     """Calculate percentage change between two values"""
