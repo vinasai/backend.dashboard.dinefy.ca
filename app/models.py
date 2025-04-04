@@ -76,6 +76,7 @@ class CallLogs(BaseModel):
         recording_url: Optional[HttpUrl]
 
     call_details: CallDetails
+    order: bool
 
 class IntegrationResponse(BaseModel):
     connected: bool
