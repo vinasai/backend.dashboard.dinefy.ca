@@ -55,7 +55,6 @@ class Features(BaseModel):
 class RestaurantDetails(BaseModel):
     restaurant_name: str
     phone_number: str
-    twilio_number: str
     address: str
     website: HttpUrl
     email: EmailStr

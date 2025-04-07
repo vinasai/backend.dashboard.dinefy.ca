@@ -195,7 +195,6 @@ async def retrieve_restaurant_details(
             return {
                 "restaurant_name": "",
                 "phone_number": "",
-                "twilio_number": "",
                 "address": "",
                 "website": "",
                 "email": "",
