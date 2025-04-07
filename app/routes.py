@@ -292,7 +292,7 @@ async def get_overview_call_data(
     If dates are not provided, defaults to last 7 days.
     """
     if not start_date:
-        end_date = date.today()
+        end_date = datetime.now().date()
         start_date = end_date - timedelta(days=6)  # Last 7 days including today
     elif not end_date:
         end_date = start_date + timedelta(days=6)  # 7 days from start date

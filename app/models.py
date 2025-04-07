@@ -68,7 +68,7 @@ class CallLogs(BaseModel):
     status: str
     date_time: str
     phone_number: str
-    duration: str
+    duration: float
     satisfaction: int
     
     class CallDetails(BaseModel):
@@ -76,6 +76,7 @@ class CallLogs(BaseModel):
         recording_url: Optional[HttpUrl]
 
     call_details: CallDetails
+    order: bool
 
 class IntegrationResponse(BaseModel):
     connected: bool
@@ -232,7 +233,7 @@ class PurchaseResponse(BaseModel):
 class CallDataEntry(BaseModel):
     date: str
     calls: int
-    minutes: int
+    minutes: float
     orders: int
     satisfaction: float
 
