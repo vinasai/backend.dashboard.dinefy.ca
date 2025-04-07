@@ -1,6 +1,6 @@
 # services.py
 from app.database import collection_user
-from app.models import User
+from app.models import User,PurchaseResponse, StripePaymentIntent
 from app.utils import hash_password, verify_password, create_access_token,authenticate_user
 from datetime import timedelta
 from fastapi import HTTPException
@@ -15,22 +15,11 @@ from datetime import datetime, timedelta
 from pydantic import EmailStr
 import secrets
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
-from app.config import MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM, MAIL_PORT, MAIL_SERVER, MAIL_FROM_NAME
+# from app.config import MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM, MAIL_PORT, MAIL_SERVER, MAIL_FROM_NAME
 import uuid
 import re
-
-# Configure email
-# conf = ConnectionConfig(
-#     MAIL_USERNAME=MAIL_USERNAME,
-#     MAIL_PASSWORD=MAIL_PASSWORD,
-#     MAIL_FROM=MAIL_FROM,
-#     MAIL_PORT=MAIL_PORT,
-#     MAIL_SERVER=MAIL_SERVER,
-#     MAIL_FROM_NAME=MAIL_FROM_NAME,
-#     MAIL_TLS=True,
-#     MAIL_SSL=False,
-#     USE_CREDENTIALS=True
-# )
+from app.stripe_service import StripeService
+import stripe
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -429,167 +418,189 @@ async def get_user_billing_info(current_user):
 
 async def add_payment_method(payment_method_data, current_user):
     """
-    Add a payment method for a user with enhanced validation
+    Add a payment method using Stripe payment method ID
     """
     user_email = current_user["user_email"]
     
-    # Enhanced card number validation
-    card_number = payment_method_data.card_number.replace(" ", "")  # Remove spaces
-    if not card_number.isdigit() or len(card_number) < 13 or len(card_number) > 19:
-        raise HTTPException(status_code=400, detail="Invalid card number. Card number must be between 13 and 19 digits")
+    # Check if user has a Stripe customer ID, create if not
+    user = Collection_billing.find_one({"user_email": user_email})
+    stripe_customer_id = user.get("stripe_customer_id") if user else None
     
-    # Validate expiry date format (MM/YY)
-    expiry_date = payment_method_data.expiry_date
-    if not re.match(r'^\d{2}/\d{2}$', expiry_date):
-        raise HTTPException(status_code=400, detail="Invalid expiry date format. Please use MM/YY format")
-    
-    # Validate month and year
-    try:
-        month, year = expiry_date.split('/')
-        month_int = int(month)
-        year_int = int("20" + year)
+    if not stripe_customer_id:
+        stripe_customer_id = await StripeService.create_customer(
+            email=user_email,
+            name=current_user.get("name", "")
+        )
         
-        if month_int < 1 or month_int > 12:
-            raise HTTPException(status_code=400, detail="Invalid month. Month must be between 01 and 12")
-        
-        # Check if card is expired
-        current_date = datetime.now()
-        current_year = current_date.year
-        current_month = current_date.month
-        
-        if year_int < current_year or (year_int == current_year and month_int < current_month):
-            raise HTTPException(status_code=400, detail="Card has expired")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format")
+        if not user:
+            # Create new user record
+            Collection_billing.insert_one({
+                "user_email": user_email,
+                "stripe_customer_id": stripe_customer_id,
+                "payment_methods": [],
+                "payment_history": []
+            })
+        else:
+            # Update existing user with Stripe customer ID
+            Collection_billing.update_one(
+                {"user_email": user_email},
+                {"$set": {"stripe_customer_id": stripe_customer_id}}
+            )
     
-    # Validate CVV
-    cvc = payment_method_data.cvc
-    if not cvc.isdigit() or len(cvc) < 3 or len(cvc) > 4:
-        raise HTTPException(status_code=400, detail="Invalid CVC. CVV must be 3 or 4 digits")
+    # Attach payment method to customer
+    await StripeService.attach_payment_method_to_customer(
+        payment_method_data.payment_method_id,
+        stripe_customer_id
+    )
     
-    # Check if cardholder name is provided
-    if not payment_method_data.cardholder_name.strip():
-        raise HTTPException(status_code=400, detail="Cardholder name is required")
+    # Retrieve payment method details from Stripe
+    payment_method = stripe.PaymentMethod.retrieve(payment_method_data.payment_method_id)
     
-    # Mask the card number for storage (keep only last 4 digits)
-    masked_card_number = "*" * (len(card_number) - 4) + card_number[-4:]
-    
-    # Create a payment method record
-    payment_method = {
-        "cardholder_name": payment_method_data.cardholder_name,
-        "card_number": masked_card_number,  # Store masked version
-        "expiry_date": payment_method_data.expiry_date,
-        "cvc": "***"  # Don't store actual CVC
+    # Create our local masked version for display
+    payment_method_record = {
+        "cardholder_name": payment_method.billing_details.name or "Cardholder",
+        "card_number": f"**** **** **** {payment_method.card.last4}",
+        "expiry_date": f"{payment_method.card.exp_month:02d}/{payment_method.card.exp_year % 100:02d}",
+        "cvc": "***",
+        "stripe_payment_method_id": payment_method.id,
+        "fingerprint": payment_method.card.fingerprint,
+        "brand": payment_method.card.brand,
+        "last4": payment_method.card.last4
     }
     
-    # Check if user already exists in billing collection
-    user = Collection_billing.find_one({"user_email": user_email})
+    # Update database
+    result = Collection_billing.update_one(
+        {"user_email": user_email},
+        {"$push": {"payment_methods": payment_method_record}}
+    )
     
-    if user:
-        # Add payment method to existing user's account
-        result = Collection_billing.update_one(
-            {"user_email": user_email},
-            {"$push": {"payment_methods": payment_method}}
-        )
-    else:
-        # Create new user record with payment method
-        result = Collection_billing.insert_one({
-            "user_email": user_email,
-            "payment_methods": [payment_method],
-            "payment_history": []
-        })
-        
-    if (user and result.modified_count == 0) or (not user and not result.inserted_id):
+    if result.modified_count == 0:
         raise HTTPException(status_code=500, detail="Failed to add payment method")
     
-    return {"message": "Payment method added successfully"}
+    return {"message": "Payment method added successfully", "stripe_payment_method_id": payment_method.id}
 
 async def purchase_minutes(purchase_data, current_user):
     """
-    Purchase minutes using the specified payment method
+    Purchase minutes using Stripe payment processing
     """
     user_email = current_user["user_email"]
-    
-    # Get user from database
     user = Collection_billing.find_one({"user_email": user_email})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if user has payment methods
-    payment_methods = user.get("payment_methods", [])
-    if not payment_methods:
-        raise HTTPException(status_code=400, detail="No payment method available")
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=400, detail="No payment methods available")
     
-    # Validate payment method selection
-    try:
-        payment_method_index = int(purchase_data.payment_method_id)
-        if payment_method_index < 0 or payment_method_index >= len(payment_methods):
-            raise HTTPException(status_code=400, detail="Invalid payment method selected")
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid payment method ID")
+    # Check if payment_method_id is a Stripe ID or our index
+    if purchase_data.payment_method_id.startswith("pm_"):
+        # It's a Stripe PaymentMethod ID
+        stripe_payment_method_id = purchase_data.payment_method_id
+    else:
+        # It's our index-based ID
+        try:
+            payment_method_index = int(purchase_data.payment_method_id)
+            payment_methods = user.get("payment_methods", [])
+            if payment_method_index < 0 or payment_method_index >= len(payment_methods):
+                raise HTTPException(status_code=400, detail="Invalid payment method selected")
+            
+            stripe_payment_method_id = payment_methods[payment_method_index].get("stripe_payment_method_id")
+            if not stripe_payment_method_id:
+                raise HTTPException(status_code=400, detail="Payment method not properly initialized")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid payment method ID")
     
-    # Get the selected payment method
-    selected_payment_method = payment_methods[payment_method_index]
-    
-    # Calculate minutes based on amount
+    # Calculate minutes
     amount = purchase_data.amount
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than zero")
-        
-    minutes = int(amount / RATE_PER_MINUTE)
     
-    # Generate a purchase ID
+    minutes = int(amount / RATE_PER_MINUTE)
     purchase_id = f"PUR-{uuid.uuid4().hex[:8].upper()}"
     
-    # Record the transaction
-    payment_record = {
-        "date": datetime.now().strftime("%Y-%m-%d"),
-        "purchase_id": purchase_id,
-        "amount": amount,
-        "minutes": minutes
-    }
-    
-    # Add to payment history
-    result = Collection_billing.update_one(
-        {"user_email": user_email},
-        {"$push": {"payment_history": payment_record}}
+    # Create Stripe payment intent
+    payment_intent = await StripeService.create_payment_intent(
+        amount=amount,
+        customer_id=stripe_customer_id,
+        payment_method_id=stripe_payment_method_id,
+        save_payment_method=purchase_data.save_payment_method,
+        metadata={
+            "purchase_id": purchase_id,
+            "user_email": user_email,
+            "minutes": str(minutes)
+        }
     )
     
-    if result.modified_count == 0:
-        raise HTTPException(status_code=500, detail="Failed to record purchase")
-    
-    return {
-        "success": True,
-        "message": f"Successfully purchased {minutes} minutes",
-        "purchase_id": purchase_id,
-        "amount": amount,
-        "minutes": minutes,
-        "date": payment_record["date"]
-    }
+    # For immediate confirmation (you might want client-side confirmation instead)
+    try:
+        confirmed_intent = await StripeService.confirm_payment_intent(payment_intent.id)
+        
+        if confirmed_intent.status != "succeeded":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Payment failed: {confirmed_intent.last_payment_error.message if confirmed_intent.last_payment_error else 'Unknown error'}"
+            )
+        
+        # Record successful payment
+        payment_record = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "purchase_id": purchase_id,
+            "amount": amount,
+            "minutes": minutes,
+            "stripe_payment_intent_id": confirmed_intent.id,
+            "status": "completed"
+        }
+        
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$push": {"payment_history": payment_record}}
+        )
+        
+        return PurchaseResponse(
+            success=True,
+            message=f"Successfully purchased {minutes} minutes",
+            purchase_id=purchase_id,
+            amount=amount,
+            minutes=minutes,
+            date=payment_record["date"]
+        )
+    except Exception as e:
+        # In production, you might want to handle this differently
+        return PurchaseResponse(
+            success=False,
+            message=str(e),
+            payment_intent=StripePaymentIntent(
+                client_secret=payment_intent.client_secret,
+                payment_intent_id=payment_intent.id,
+                amount=amount,
+                currency=payment_intent.currency,
+                status=payment_intent.status
+            )
+        )
 
 async def delete_payment_method(payment_method_index, current_user):
     """
-    Delete a payment method by its index in the array
+    Delete a payment method both locally and in Stripe
     """
     user_email = current_user["user_email"]
     
-    # Convert index to integer
     try:
         index = int(payment_method_index)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payment method index")
     
-    # Get user from database
     user = Collection_billing.find_one({"user_email": user_email})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if payment method exists at the specified index
     payment_methods = user.get("payment_methods", [])
     if index < 0 or index >= len(payment_methods):
         raise HTTPException(status_code=404, detail="Payment method not found")
     
-    # Use MongoDB's array update operators to remove the element at the specified index
+    # Get Stripe payment method ID before deleting
+    stripe_payment_method_id = payment_methods[index].get("stripe_payment_method_id")
+    
+    # Remove from our database first
     result = Collection_billing.update_one(
         {"user_email": user_email},
         {"$unset": {f"payment_methods.{index}": 1}}
@@ -598,11 +609,19 @@ async def delete_payment_method(payment_method_index, current_user):
     if result.modified_count == 0:
         raise HTTPException(status_code=500, detail="Failed to remove payment method")
     
-    # Now pull any null elements to clean up the array
+    # Clean up null elements
     Collection_billing.update_one(
         {"user_email": user_email},
         {"$pull": {"payment_methods": None}}
     )
+    
+    # If we have a Stripe ID, detach from customer
+    if stripe_payment_method_id:
+        try:
+            await StripeService.detach_payment_method(stripe_payment_method_id)
+        except Exception as e:
+            # Log this error but don't fail the request
+            print(f"Failed to detach Stripe payment method: {str(e)}")
     
     return {"message": "Payment method removed successfully"}
 

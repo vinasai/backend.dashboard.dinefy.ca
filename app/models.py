@@ -131,12 +131,18 @@ class PaymentMethod(BaseModel):
     card_number: str
     expiry_date: str
     cvc: str = "***"  # We don't return actual CVC
-    
+
+class AddPaymentMethodStripe(BaseModel):
+    payment_method_id: str
+    setup_for_future_use: bool = False
+
+  
 class AddPaymentMethod(BaseModel):
     cardholder_name: str
     card_number: str
     expiry_date: str
     cvc: str
+    setup_for_future_use: bool = False
     
     @validator('cardholder_name')
     def validate_cardholder_name(cls, v):
@@ -188,6 +194,7 @@ class PaymentHistoryItem(BaseModel):
 class PurchaseMinutes(BaseModel):
     amount: float
     payment_method_id: str
+    save_payment_method: bool = False
     
     @validator('amount')
     def validate_amount(cls, v):
@@ -206,6 +213,13 @@ class BillingResponse(BaseModel):
     payment_history: List[PaymentHistoryItem]
     usage_data: List[UsageData]
 
+class StripePaymentIntent(BaseModel):
+    client_secret: Optional[str] = None
+    payment_intent_id: Optional[str] = None
+    amount: Optional[int] = None
+    currency: Optional[str] = None
+    status: Optional[str] = None
+
 class PurchaseResponse(BaseModel):
     success: bool
     message: str
@@ -213,6 +227,7 @@ class PurchaseResponse(BaseModel):
     amount: Optional[float] = None
     minutes: Optional[int] = None
     date: Optional[str] = None
+    payment_intent: Optional[StripePaymentIntent] = None  # For client-side confirmation
     
 class CallDataEntry(BaseModel):
     date: str

@@ -6,3 +6,4 @@ python-multipart
 PyJWT
 pydantic[email]
 fastapi-mail
+stripe

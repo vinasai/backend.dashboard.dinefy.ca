@@ -261,7 +261,7 @@ async def get_billing_info(current_user: dict = Depends(get_current_user)):
     return await app.services.get_user_billing_info(current_user)
 
 @router.post("/payment-methods")
-async def add_new_payment_method(payment_method: app.models.AddPaymentMethod, current_user: dict = Depends(get_current_user)):
+async def add_new_payment_method(payment_method: app.models.AddPaymentMethodStripe, current_user: dict = Depends(get_current_user)):
     """
     Add a new payment method for the user with enhanced validation
     """
@@ -281,8 +281,6 @@ async def buy_minutes(purchase_data: app.models.PurchaseMinutes, current_user: d
     """
     return await app.services.purchase_minutes(purchase_data, current_user)
 
-
-
 @router.get("/overview/call-data", response_model=app.models.CallDataResponse)
 async def get_overview_call_data(
     start_date: date = Query(None), 
@@ -300,3 +298,4 @@ async def get_overview_call_data(
         end_date = start_date + timedelta(days=6)  # 7 days from start date
         
     return await app.services.get_call_data(start_date, end_date, current_user["user_email"])
+
