@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import app.database
 from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount,RestaurantDetails,PasswordResetRequest, VerifyResetCodeRequest
 import app.models
 from app.services import get_user_integrations, update_integration
@@ -9,6 +10,10 @@ from app.utils import get_current_user
 from fastapi import HTTPException
 from fastapi import Query
 from datetime import date, datetime, timedelta
+
+from pydantic import EmailStr
+
+
 
 router = APIRouter()
 
@@ -27,12 +32,12 @@ async def login(user_login: User_login ):
     return app.services.login_user_manual(user_login, ACCESS_TOKEN_EXPIRE_MINUTES)
 
 @router.put("/update-email")
-async def update_user_email(new_email: UpdateEmail, current_user: str = Depends(get_current_user)):
+async def update_user_email(email_data: dict, current_user: str = Depends(get_current_user)):
     """
     Update user email endpoint.
     Requires current password for verification.
     """
-    return await app.services.updated_user_email(new_email, current_user)
+    return await app.services.updated_user_email(email_data, current_user)
        
 @router.put("/change-password" ,response_model=PasswordChangeResponse)
 async def change_user_password(ChangePassword: ChangePassword, current_user: str = Depends(get_current_user)):
@@ -232,26 +237,26 @@ async def get_twilio_number(current_user: User = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# @router.post("/forgot-password")
-# async def forgot_password(request: PasswordResetRequest):
-#     """
-#     Request a password reset code.
-#     """
-#     return await app.services.request_password_reset(request.email)
+@router.post("/forgot-password")
+async def forgot_password(request: PasswordResetRequest):
+    """
+    Request a password reset code.
+    """
+    return await app.services.request_password_reset(request.email)
 
-# @router.post("/reset-password")
-# async def reset_password(request: VerifyResetCodeRequest):
-#     """
-#     Verify the reset code and reset the password.
-#     """
-#     if request.new_password != request.confirm_password:
-#         raise HTTPException(status_code=400, detail="Passwords do not match")
+@router.post("/reset-password")
+async def reset_password(request: VerifyResetCodeRequest):
+    """
+    Verify the reset code and reset the password.
+    """
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
     
-#     return await app.services.verify_reset_code_and_reset_password(
-#         request.email,
-#         request.code,
-#         request.new_password
-#     )
+    return await app.services.verify_reset_code_and_reset_password(
+        request.email,
+        request.code,
+        request.new_password
+    )
     
 @router.get("/billing", response_model=app.models.BillingResponse)
 async def get_billing_info(current_user: dict = Depends(get_current_user)):
@@ -298,4 +303,36 @@ async def get_overview_call_data(
         end_date = start_date + timedelta(days=6)  # 7 days from start date
         
     return await app.services.get_call_data(start_date, end_date, current_user["user_email"])
+
+
+@router.get("/user/minutes-remaining", response_model=app.models.MinutesRemainingResponse)
+async def get_minutes_remaining(current_user: User = Depends(get_current_user)):
+    """
+    Get the minutes remaining and total minutes for the current user
+    """
+    try:
+        minutes_info = await app.services.get_user_minutes_info(current_user["user_email"])
+        return minutes_info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/request-verification")
+async def request_verification(request_data: app.models.EmailVerification):
+    return await app.services.request_email_verification(request_data.email)
+
+@router.post("/resend-verification")
+async def resend_verification(request_data: app.models.EmailVerification):
+    return await app.services.request_email_verification(request_data.email)
+
+@router.post("/verify-email")
+async def verify_email(verify_data: app.models.VerifyEmailRequest):
+    result = await app.services.verify_email_code(verify_data.email, verify_data.code)
+    
+    # Mark email as verified in verification collection
+    app.database.collection_email_verification.update_one(
+        {"email": verify_data.email},
+        {"$set": {"verified": True}}
+    )
+    
+    return result
 

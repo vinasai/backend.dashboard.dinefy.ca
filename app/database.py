@@ -11,6 +11,7 @@ collection_restaurant = database['restaurant_details']
 collection_integrations = database["intergrations"]
 collection_call_logs = database['call_logs']
 Collection_billing = database['billing']
+collection_email_verification = database["email_verification"]
 
 # Add this new collection
 collection_password_reset = database["password_reset"]

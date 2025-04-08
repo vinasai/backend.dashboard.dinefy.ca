@@ -133,8 +133,10 @@ class PaymentMethod(BaseModel):
     expiry_date: str
     cvc: str = "***"  # We don't return actual CVC
 
+
 class AddPaymentMethodStripe(BaseModel):
     payment_method_id: str
+    cardholder_name: Optional[str] = None  # Added field for cardholder name
     setup_for_future_use: bool = False
 
   
@@ -212,7 +214,6 @@ class BillingResponse(BaseModel):
     total_minutes: int
     payment_methods: List[PaymentMethod]
     payment_history: List[PaymentHistoryItem]
-    usage_data: List[UsageData]
 
 class StripePaymentIntent(BaseModel):
     client_secret: Optional[str] = None
@@ -245,3 +246,13 @@ class DateRangeRequest(BaseModel):
     start_date: date
     end_date: date
     
+class MinutesRemainingResponse(BaseModel):
+    remaining_minutes: float
+    total_minutes: int 
+    
+class EmailVerification(BaseModel):
+    email: EmailStr
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str
