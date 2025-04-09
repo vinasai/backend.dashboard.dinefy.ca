@@ -303,9 +303,7 @@ async def request_password_reset(email: EmailStr):
     # Check if user exists
     user = collection_user.find_one({"user_email": email})
     if not user:
-        # We don't want to reveal if an email exists in the system
-        # So we return success regardless, but only generate a code if the user exists
-        return {"message": "If your email is registered, a reset code has been sent"}
+        raise HTTPException(status_code=404, detail="Email is not registered")
     
     # Generate a 6-digit verification code
     verification_code = ''.join(secrets.choice('0123456789') for _ in range(6))
