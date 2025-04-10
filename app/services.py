@@ -1063,7 +1063,7 @@ async def verify_email_code(email: EmailStr, code: str):
     
     return {"message": "Email verified successfully"}
 
-# Modified create_new_user function to check email verification
+# Modified create_new_user function to check email verification and Twilio number uniqueness
 def create_new_user(user: User):
     existing_user = collection_user.find_one({"user_email": user.user_email})
     if existing_user:
@@ -1077,6 +1077,11 @@ def create_new_user(user: User):
     
     if not verification:
         raise HTTPException(status_code=400, detail="Email not verified")
+    
+    # Check if Twilio number is already in use
+    existing_twilio_number = collection_user.find_one({"twilio_number": user.twilio_number})
+    if existing_twilio_number:
+        raise HTTPException(status_code=400, detail="Twilio number already in use")
     
     # Hash the password before storing in the database
     hashed_password = hash_password(user.user_pw)
