@@ -63,19 +63,22 @@ class RestaurantDetails(BaseModel):
     greetingMessage: str
     endingMessage: str
     
+class TranscriptEntry(BaseModel):
+    role: str
+    text: str
+
+class CallDetails(BaseModel):
+    transcript: Optional[List[TranscriptEntry]]
+
 class CallLogs(BaseModel):
     status: str
     date_time: str
     phone_number: str
     duration: float
     satisfaction: int
-    
-    class CallDetails(BaseModel):
-        transcript: Optional[str]
-        recording_url: Optional[HttpUrl]
-
     call_details: CallDetails
     order: bool
+    user_email: str
 
 class IntegrationResponse(BaseModel):
     connected: bool
