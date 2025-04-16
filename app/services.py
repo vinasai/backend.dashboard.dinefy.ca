@@ -376,7 +376,7 @@ async def request_password_reset(email: EmailStr):
 async def send_email(request):
     message = MessageSchema(
         subject="New Demo Request from Dinefy",
-        recipients=["your-team@yourdomain.com"],  # Add your target email(s)
+        recipients=[MAIL_USERNAME],  # Add your target email(s)
         body=f"""
         You have received a new demo request:
 
