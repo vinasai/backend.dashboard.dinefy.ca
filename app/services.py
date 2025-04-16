@@ -13,7 +13,7 @@ from app.database import collection_restaurant, collection_call_logs ,collection
 from jwt.exceptions import PyJWTError
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
-from pydantic import EmailStr, DemoRequest
+from pydantic import EmailStr
 import secrets
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 import uuid
@@ -373,7 +373,7 @@ async def request_password_reset(email: EmailStr):
     
     return {"message": "If your email is registered, a reset code has been sent"}
 
-async def send_email(request: DemoRequest):
+async def send_email(request):
     message = MessageSchema(
         subject="New Demo Request from Dinefy",
         recipients=["your-team@yourdomain.com"],  # Add your target email(s)
