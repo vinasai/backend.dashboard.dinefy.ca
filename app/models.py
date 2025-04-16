@@ -258,3 +258,14 @@ class EmailVerification(BaseModel):
 class VerifyEmailRequest(BaseModel):
     email: EmailStr
     code: str
+
+class DemoRequest(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    restaurant: str
+    address: str = ""
+    date: str
+    time: str
+    message: str = ""
+    consent: bool

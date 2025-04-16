@@ -13,6 +13,8 @@ app = FastAPI(
 
 origins = [
    "https://dashboard.dinefy.ca",
+   "https://dinefy.ca",
+   "https://localhost:3000"
    "http://localhost:5005",
    "http://localhost:5173"   
 ]

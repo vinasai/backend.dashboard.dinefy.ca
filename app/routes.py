@@ -335,3 +335,6 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     
     return result
 
+@app.post("/send-email")
+async def send_email(request: app.models.DemoRequest):
+    return await app.services.send_email(request)

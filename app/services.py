@@ -8,11 +8,12 @@ from bson import ObjectId
 from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.responses import JSONResponse
 from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset,Collection_billing,collection_email_verification 
 from jwt.exceptions import PyJWTError
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from datetime import datetime, timedelta
-from pydantic import EmailStr
+from pydantic import EmailStr, DemoRequest
 import secrets
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 import uuid
@@ -371,6 +372,31 @@ async def request_password_reset(email: EmailStr):
         # You may want to handle this error more gracefully
     
     return {"message": "If your email is registered, a reset code has been sent"}
+
+async def send_email(request: DemoRequest):
+    message = MessageSchema(
+        subject="New Demo Request from Dinefy",
+        recipients=["your-team@yourdomain.com"],  # Add your target email(s)
+        body=f"""
+        You have received a new demo request:
+
+        Name: {request.name}
+        Email: {request.email}
+        Phone: {request.phone}
+        Restaurant: {request.restaurant}
+        Address: {request.address}
+        Preferred Date: {request.date}
+        Preferred Time: {request.time}
+        Message: {request.message}
+        Consent Given: {request.consent}
+        """,
+        subtype="plain"
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Email sent successfully"})
 
 async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_password: str):
     """
