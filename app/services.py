@@ -403,7 +403,7 @@ async def contact_email(request):
         subject="Contact with Dinefy",
         recipients=[MAIL_USERNAME], 
         body=f"""
-        You have received a new demo request:
+        You have received a new contact request:
 
         Name: {request.name}
         Email: {request.email}
