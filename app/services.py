@@ -398,6 +398,26 @@ async def send_email(request):
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Email sent successfully"})
 
+async def contact_email(request):
+    message = MessageSchema(
+        subject="Contact with Dinefy",
+        recipients=[MAIL_USERNAME], 
+        body=f"""
+        You have received a new demo request:
+
+        Name: {request.name}
+        Email: {request.email}
+        Message: {request.subject}
+        Message: {request.message}
+        """,
+        subtype="plain"
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Email sent successfully"})
+
 async def verify_reset_code_and_reset_password(email: EmailStr, code: str, new_password: str):
     """
     Verify the reset code and update the user's password if valid.

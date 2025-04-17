@@ -269,3 +269,9 @@ class DemoRequest(BaseModel):
     time: str
     message: str = ""
     consent: bool
+
+class ContactRequest(BaseModel):
+    name: str
+    email: EmailStr
+    subject: str
+    message: str

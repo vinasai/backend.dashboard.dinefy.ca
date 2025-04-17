@@ -338,3 +338,7 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
 @router.post("/send-email")
 async def send_email(request: app.models.DemoRequest):
     return await app.services.send_email(request)
+
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
