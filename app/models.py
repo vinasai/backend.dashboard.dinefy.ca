@@ -63,19 +63,22 @@ class RestaurantDetails(BaseModel):
     greetingMessage: str
     endingMessage: str
     
+class TranscriptEntry(BaseModel):
+    role: str
+    text: str
+
+class CallDetails(BaseModel):
+    transcript: Optional[List[TranscriptEntry]]
+
 class CallLogs(BaseModel):
     status: str
     date_time: str
     phone_number: str
     duration: float
     satisfaction: int
-    
-    class CallDetails(BaseModel):
-        transcript: Optional[str]
-        recording_url: Optional[HttpUrl]
-
     call_details: CallDetails
     order: bool
+    user_email: str
 
 class IntegrationResponse(BaseModel):
     connected: bool
@@ -278,6 +281,22 @@ class VerifyEmailRequest(BaseModel):
     email: EmailStr
     code: str
 
+class DemoRequest(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    restaurant: str
+    address: str = ""
+    date: str
+    time: str
+    message: str = ""
+    consent: bool
+
+class ContactRequest(BaseModel):
+    name: str
+    email: EmailStr
+    subject: str
+    message: str
 
 class UserDetailsResponse(BaseModel):
     _id: str

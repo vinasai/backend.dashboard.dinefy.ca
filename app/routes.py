@@ -346,6 +346,10 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     
     return result
 
+@router.post("/send-email")
+async def send_email(request: app.models.DemoRequest):
+    return await app.services.send_email(request)
+
 @router.get("/admin/allrestaurentdetails")
 async def get_all_restaurents_details(current_user: User = Depends(get_current_user)):
     """
@@ -789,3 +793,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                 )
     
     return {"status": "success"}
+
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
