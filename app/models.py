@@ -100,6 +100,15 @@ class ShopifyIntegrationResponse(IntegrationResponse):
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
     shop_url: Optional[str] = None
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)   
     
 class PaymentMethod(BaseModel):
     cardholder_name: str
@@ -116,16 +125,7 @@ class PaymentHistory(BaseModel):
 class UserPayments(BaseModel):
     payment_methods: List[PaymentMethod]
     payment_history: List[PaymentHistory]
-    
-class PasswordResetRequest(BaseModel):
-    email: EmailStr
-
-class VerifyResetCodeRequest(BaseModel):
-    email: EmailStr
-    code: str = Field(..., min_length=6, max_length=6)
-    new_password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
-        
+           
 class PaymentMethod(BaseModel):
     cardholder_name: str
     card_number: str
@@ -230,6 +230,28 @@ class PurchaseResponse(BaseModel):
     date: Optional[str] = None
     payment_intent: Optional[StripePaymentIntent] = None  # For client-side confirmation
     
+# Subscription specific models
+class SubscriptionRequest(BaseModel):
+    payment_method_id: str
+    cardholder_name: str
+    billing_address: str
+
+class SubscriptionResponse(BaseModel):
+    success: bool
+    message: str
+    subscription_id: Optional[str] = None
+    start_date: Optional[str] = None
+    current_period_end: Optional[str] = None
+    status: Optional[str] = None
+
+class SubscriptionInfo(BaseModel):
+    subscription_id: str
+    status: str
+    start_date: str
+    current_period_end: str
+    price: float
+    auto_renew: bool
+    
 class CallDataEntry(BaseModel):
     date: str
     calls: int
@@ -255,3 +277,17 @@ class EmailVerification(BaseModel):
 class VerifyEmailRequest(BaseModel):
     email: EmailStr
     code: str
+
+
+class UserDetailsResponse(BaseModel):
+    _id: str
+    email: EmailStr
+    twilio_number: str
+    restaurant_name: str
+    phone_number: str
+    address: str
+    website: HttpUrl
+    features: Features
+    greetingMessage: str
+    endingMessage: str
+    

@@ -73,8 +73,14 @@ def login_user_manual(user_login, ACCESS_TOKEN_EXPIRE_MINUTES):
     access_token = create_access_token(
         data={"email": user_login.email}, expires_delta=access_token_expires
     )
+    #find user role
+    user = collection_user.find_one({"user_email": user_login.email})
+    if user:
+        role = user.get("role", "user")  # Default to 'user' if role is not found
+    else:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    return {"access_token": access_token}
+    return {"access_token": access_token , "role": role}
 
 async def updated_user_email(email_data, current_user):
     """
@@ -700,8 +706,8 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
 
         sample_data = list(collection_call_logs.find({"user_email": user_email}).limit(1))
         print(f"Sample data available: {len(sample_data) > 0}")
-        if sample_data:
-            print(f"Sample document: {sample_data[0]}")
+        # if sample_data:
+        #     print(f"Sample document: {sample_data[0]}")
 
         pipeline = [
             {
@@ -786,7 +792,7 @@ async def get_call_data(start_date: datetime.date, end_date: datetime.date, user
             {"$sort": {"date": 1}}
         ]
 
-        print("Executing pipeline:", pipeline)
+        # print("Executing pipeline:", pipeline)
         call_data = list(collection_call_logs.aggregate(pipeline))
         print(f"Found {len(call_data)} results")
         if call_data:
@@ -1099,3 +1105,353 @@ def create_new_user(user: User):
     collection_email_verification.delete_one({"email": user.user_email})
     
     return {"message": "User created successfully"}
+
+async def get_all_restaurents_details_service(current_user):
+    """
+    Retrieve all restaurant details from the restaurant details collection.
+    """
+    try:
+        # Query the restaurant collection to retrieve all documents
+        restaurants = collection_restaurant.find({}, {"_id": 1, "restaurant_name": 1, "address": 1, "user_email": 1, "phone_number": 1, "website": 1, "features": 1, "greetingMessage": 1, "endingMessage": 1})
+        
+        # Convert the cursor to a list and include the ObjectId as a string
+        restaurant_list = []
+        for restaurant in restaurants:
+            # Retrieve integrations for the user
+            integrations = collection_integrations.find_one({"user_email": restaurant.get("user_email", "")})
+            integration_status = {
+            "shopify": integrations.get("integrations", {}).get("shopify", {}).get("connected", False) if integrations else False,
+            "clover": integrations.get("integrations", {}).get("clover", {}).get("connected", False) if integrations else False,
+            }
+            
+            twilionumber = collection_user.find_one({"user_email": restaurant.get("user_email", "")})
+            if twilionumber:
+                restaurant["twilio_number"] = twilionumber.get("twilio_number", "")
+            
+            restaurant_list.append({
+            "id": str(restaurant["_id"]),
+            "email": restaurant.get("user_email", ""),
+            "restaurantName": restaurant.get("restaurant_name", ""),
+            "phoneNumber": restaurant.get("phone_number", ""),
+            "address": restaurant.get("address", ""),
+            "website": restaurant.get("website", ""),
+            "twilioNumber": restaurant.get("twilio_number", ""),
+            "integrations": integration_status,
+            "features": restaurant.get("features", {}),
+            "messages": {
+                "greeting": restaurant.get("greetingMessage", ""),
+                "ending": restaurant.get("endingMessage", "")
+            }
+            })
+        
+        return restaurant_list
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving restaurant details: {str(e)}")
+
+
+async def send_subscription_confirmation_email(email: str, plan_type: str = "monthly"):
+    """
+    Send email confirmation when a user subscribes to a plan
+    
+    Args:
+        email: The user's email address
+        plan_type: The type of subscription plan (default: monthly)
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    message = MessageSchema(
+        subject="Your Dinefy Subscription is Confirmed",
+        recipients=[email],
+        body=f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2c3e50;">Subscription Confirmation</h2>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Thank you for subscribing to Dinefy! Your {plan_type} subscription is now active.
+                    </p>
+                    <div style="background-color: #f8f9fa; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            <strong>Subscription Details:</strong>
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Plan: {plan_type.capitalize()} Plan ($149/month)
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Start Date: {current_date}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Status: Active
+                        </p>
+                    </div>
+                    <p style="font-size: 16px; color: #34495e;">
+                        You can manage your subscription at any time from your account dashboard.
+                    </p>
+                    <p style="font-size: 16px; color: #34495e;">
+                        If you have any questions or need assistance, please don't hesitate to contact our support team.
+                    </p>
+                    <br>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Best regards,<br>
+                        The Dinefy Team
+                    </p>
+                </div>
+            </body>
+        </html>
+        """,
+        subtype="html"
+    )
+    
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"Subscription confirmation email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send subscription confirmation email: {e}")
+        return False
+
+async def send_subscription_cancellation_email(email: str, end_date: str):
+    """
+    Send email confirmation when a user cancels their subscription
+    
+    Args:
+        email: The user's email address
+        end_date: The date when the subscription will end
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    message = MessageSchema(
+        subject="Your Dinefy Subscription Has Been Canceled",
+        recipients=[email],
+        body=f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2c3e50;">Subscription Cancellation Confirmation</h2>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We're sorry to see you go. Your Dinefy subscription has been canceled as requested.
+                    </p>
+                    <div style="background-color: #f8f9fa; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            <strong>Cancellation Details:</strong>
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Cancellation Date: {current_date}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Service End Date: {end_date}
+                        </p>
+                    </div>
+                    <p style="font-size: 16px; color: #34495e;">
+                        You will continue to have access to all Dinefy features until the end of your current billing period.
+                    </p>
+                    <p style="font-size: 16px; color: #34495e;">
+                        If you've changed your mind or canceled by mistake, you can reactivate your subscription anytime from your account dashboard before your service ends.
+                    </p>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We'd love to hear your feedback on why you decided to cancel. Your insights help us improve our service.
+                    </p>
+                    <br>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Best regards,<br>
+                        The Dinefy Team
+                    </p>
+                </div>
+            </body>
+        </html>
+        """,
+        subtype="html"
+    )
+    
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"Subscription cancellation email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send subscription cancellation email: {e}")
+        return False
+    
+
+async def send_subscription_renewal_email(email: str, amount: float):
+    """
+    Send email notification for subscription renewal
+    
+    Args:
+        email: The user's email address
+        amount: The renewal amount charged
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    message = MessageSchema(
+        subject="Your Dinefy Subscription Has Been Renewed",
+        recipients=[email],
+        body=f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2c3e50;">Subscription Renewal Confirmation</h2>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Your Dinefy subscription has been successfully renewed.
+                    </p>
+                    <div style="background-color: #f8f9fa; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            <strong>Payment Details:</strong>
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Amount: ${amount:.2f}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Date: {current_date}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Plan: Monthly Subscription
+                        </p>
+                    </div>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Thank you for your continued support. You can view your billing details anytime in your account dashboard.
+                    </p>
+                    <br>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Best regards,<br>
+                        The Dinefy Team
+                    </p>
+                </div>
+            </body>
+        </html>
+        """,
+        subtype="html"
+    )
+    
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"Subscription renewal email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send subscription renewal email: {e}")
+        return False
+
+async def send_payment_failed_email(email: str, amount: float):
+    """
+    Send email notification for failed payment
+    
+    Args:
+        email: The user's email address
+        amount: The payment amount that failed
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    message = MessageSchema(
+        subject="Action Required: Your Dinefy Payment Failed",
+        recipients=[email],
+        body=f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2c3e50;">Payment Failed</h2>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We were unable to process your subscription payment.
+                    </p>
+                    <div style="background-color: #f8f9fa; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            <strong>Payment Details:</strong>
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Amount: ${amount:.2f}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Date: {current_date}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Plan: Monthly Subscription
+                        </p>
+                    </div>
+                    <p style="font-size: 16px; color: #34495e;">
+                        <strong>What you need to do:</strong>
+                    </p>
+                    <ol style="font-size: 16px; color: #34495e;">
+                        <li>Log in to your Dinefy account</li>
+                        <li>Go to the Billing section</li>
+                        <li>Update your payment method or add a new one</li>
+                    </ol>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We'll try charging your payment method again in the next few days. If we're still unable to process the payment, your subscription may be canceled.
+                    </p>
+                    <br>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Best regards,<br>
+                        The Dinefy Team
+                    </p>
+                </div>
+            </body>
+        </html>
+        """,
+        subtype="html"
+    )
+    
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"Payment failed email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send payment failed email: {e}")
+        return False
+
+async def send_subscription_ended_email(email: str):
+    """
+    Send email notification when a subscription ends (auto-cancellation)
+    
+    Args:
+        email: The user's email address
+    """
+    current_date = datetime.now().strftime("%B %d, %Y")
+    message = MessageSchema(
+        subject="Your Dinefy Subscription Has Ended",
+        recipients=[email],
+        body=f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; padding: 20px;">
+                <div style="max-width: 600px; margin: auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #2c3e50;">Subscription Ended</h2>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Your Dinefy subscription has ended, and your access to premium features has been discontinued.
+                    </p>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We value your business and hope you've enjoyed using our service. You can reactivate your subscription at any time from your account dashboard to regain access to all premium features.
+                    </p>
+                    <div style="background-color: #f8f9fa; border-radius: 5px; padding: 15px; margin: 20px 0;">
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            <strong>Subscription Details:</strong>
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            End Date: {current_date}
+                        </p>
+                        <p style="font-size: 16px; color: #34495e; margin: 5px 0;">
+                            Status: Ended
+                        </p>
+                    </div>
+                    <p style="font-size: 16px; color: #34495e;">
+                        We'd love to hear your feedback on your experience with Dinefy. Your insights help us improve our service.
+                    </p>
+                    <p style="font-size: 16px; color: #34495e;">
+                        If you have any questions or need assistance, please don't hesitate to contact our support team.
+                    </p>
+                    <br>
+                    <p style="font-size: 16px; color: #34495e;">
+                        Best regards,<br>
+                        The Dinefy Team
+                    </p>
+                </div>
+            </body>
+        </html>
+        """,
+        subtype="html"
+    )
+    
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"Subscription ended email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send subscription ended email: {e}")
+        return False

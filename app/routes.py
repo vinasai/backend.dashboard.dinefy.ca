@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import app.database
 from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount,RestaurantDetails,PasswordResetRequest, VerifyResetCodeRequest
@@ -10,14 +10,25 @@ from app.utils import get_current_user
 from fastapi import HTTPException
 from fastapi import Query
 from datetime import date, datetime, timedelta
-
+from typing import List
 from pydantic import EmailStr
-
+from app.stripe_service import StripeService
+from app.models import PaymentMethod, AddPaymentMethod, PurchaseResponse
+from app.database import Collection_billing
+from fastapi import BackgroundTasks
+import uuid
+import stripe
+from app.config import STRIPE_WEBHOOK_SECRET, MONTHLY_SUBSCRIPTION_PRICE_ID
 
 
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+STRIPE_WEBHOOK_SECRET = STRIPE_WEBHOOK_SECRET
+
+# Price ID for your $149/month subscription plan
+MONTHLY_SUBSCRIPTION_PRICE_ID = MONTHLY_SUBSCRIPTION_PRICE_ID
 
 @router.post("/token")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -335,3 +346,446 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     
     return result
 
+@router.get("/admin/allrestaurentdetails")
+async def get_all_restaurents_details(current_user: User = Depends(get_current_user)):
+    """
+    Retrieve all users with their details.
+    """
+    try:
+        users = await app.services.get_all_restaurents_details_service(current_user)
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+# Modified subscribe route with email notification
+@router.post("/subscribe", response_model=app.models.SubscriptionResponse)
+async def create_subscription(
+    subscription_data: app.models.SubscriptionRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a new monthly subscription ($149/month)
+    """
+    user_email = current_user["user_email"]
+    user = Collection_billing.find_one({"user_email": user_email})
+    
+    if not user:
+        # Add user to the Collection_billing if not found
+        user = {
+            "user_email": user_email,
+            "stripe_customer_id": None,
+            "subscription": None,
+            "payment_methods": []
+        }
+        Collection_billing.insert_one(user)
+    
+    # Check if user already has an active subscription
+    if user.get("subscription") and user["subscription"].get("status") == "active":
+        raise HTTPException(status_code=400, detail="User already has an active subscription")
+    
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        # Create a new customer if one doesn't exist
+        stripe_customer_id = await StripeService.create_customer(email=user_email)
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$set": {"stripe_customer_id": stripe_customer_id}}
+        )
+    
+    try:
+        # If using client-side payment method ID (from Stripe Elements)
+        payment_method = stripe.PaymentMethod.retrieve(subscription_data.payment_method_id)
+        
+        # Attach payment method to customer if not already attached
+        if payment_method.customer != stripe_customer_id:
+            await StripeService.attach_payment_method_to_customer(
+                payment_method_id=subscription_data.payment_method_id,
+                customer_id=stripe_customer_id
+            )
+        
+        # Set as default payment method
+        await StripeService.set_default_payment_method(
+            customer_id=stripe_customer_id,
+            payment_method_id=subscription_data.payment_method_id
+        )
+        
+        # Store payment method info in our database (masked card)
+        card_info = payment_method.card
+        last4 = card_info.last4
+        exp_month = card_info.exp_month
+        exp_year = card_info.exp_year
+        card_brand = card_info.brand
+        
+        payment_method_record = {
+            "stripe_payment_method_id": subscription_data.payment_method_id,
+            "cardholder_name": subscription_data.cardholder_name,
+            "card_last4": last4,
+            "card_expiry": f"{exp_month:02d}/{str(exp_year)[-2:]}",
+            "card_brand": card_brand,
+            "billing_address": subscription_data.billing_address,
+            "is_default": True
+        }
+        
+        # Create subscription in Stripe
+        subscription = await StripeService.create_subscription(
+            customer_id=stripe_customer_id,
+            price_id=MONTHLY_SUBSCRIPTION_PRICE_ID,
+            payment_method_id=subscription_data.payment_method_id,
+            metadata={
+                "user_email": user_email
+            }
+        )
+        
+        # Format dates
+        start_date = datetime.fromtimestamp(subscription.start_date).strftime("%Y-%m-%d")
+        current_period_end = datetime.fromtimestamp(subscription.current_period_end).strftime("%Y-%m-%d")
+        
+        # Store subscription info in our database
+        subscription_record = {
+            "subscription_id": subscription.id,
+            "status": subscription.status,
+            "start_date": start_date,
+            "current_period_end": current_period_end,
+            "price": 149.00,
+            "auto_renew": True,
+            "plan": "monthly",
+            "payment_methods": [payment_method_record],
+            "payment_history": [
+                {
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "purchase_id": f"SUB-{uuid.uuid4().hex[:8].upper()}",
+                    "amount": 149.00,
+                    "type": "subscription",
+                    "description": "Monthly Subscription - Initial Payment",
+                    "status": "completed"
+                }
+            ]
+        }
+        
+        # Update database
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$set": {"subscription": subscription_record}}
+        )
+        
+        # Send subscription confirmation email in the background
+        background_tasks.add_task(
+            app.services.send_subscription_confirmation_email,
+            user_email,
+            "monthly"
+        )
+        
+        return app.models.SubscriptionResponse(
+            success=True,
+            message="Subscription activated successfully",
+            subscription_id=subscription.id,
+            start_date=start_date,
+            current_period_end=current_period_end,
+            status=subscription.status
+        )
+        
+    except stripe.error.CardError as e:
+        raise HTTPException(status_code=400, detail=f"Card error: {e.user_message}")
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process subscription: {str(e)}")
+
+# Modified cancel subscription route with email notification
+@router.post("/cancel-subscription", response_model=app.models.SubscriptionResponse)
+async def cancel_subscription(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Cancel an active subscription
+    """
+    user_email = current_user["user_email"]
+    user = Collection_billing.find_one({"user_email": user_email})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    subscription = user.get("subscription")
+    if not subscription or subscription.get("status") != "active":
+        raise HTTPException(status_code=404, detail="No active subscription found")
+    
+    try:
+        # Cancel the subscription in Stripe
+        cancelled = await StripeService.cancel_subscription(subscription["subscription_id"])
+        
+        # Update our database
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {
+                "$set": {
+                    "subscription.status": "canceled",
+                    "subscription.auto_renew": False
+                }
+            }
+        )
+        
+        # Send cancellation email in the background
+        end_date = subscription.get("current_period_end", datetime.now().strftime("%Y-%m-%d"))
+        formatted_end_date = datetime.strptime(end_date, "%Y-%m-%d").strftime("%B %d, %Y")
+        background_tasks.add_task(
+            app.services.send_subscription_cancellation_email,
+            user_email,
+            formatted_end_date
+        )
+        
+        return app.models.SubscriptionResponse(
+            success=True,
+            message="Subscription cancelled successfully. You'll have access until the end of your billing period.",
+            subscription_id=subscription["subscription_id"],
+            status="canceled"
+        )
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cancel subscription: {str(e)}")
+
+@router.get("/subscription", response_model=app.models.SubscriptionInfo)
+async def get_subscription(current_user: dict = Depends(get_current_user)):
+    """
+    Get current subscription status
+    """
+    user_email = current_user["user_email"]
+    user = Collection_billing.find_one({"user_email": user_email})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    subscription = user.get("subscription")
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No active subscription found")
+    
+    # If it's been a while since we updated subscription status, fetch latest from Stripe
+    try:
+        stripe_subscription = await StripeService.get_subscription(subscription["subscription_id"])
+        
+        # Update local record with latest status
+        subscription["status"] = stripe_subscription.status
+        subscription["current_period_end"] = datetime.fromtimestamp(
+            stripe_subscription.current_period_end
+        ).strftime("%Y-%m-%d")
+        
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$set": {"subscription": subscription}}
+        )
+    except:
+        # If we can't reach Stripe, just return what we have
+        pass
+    
+    return app.models.SubscriptionInfo(**subscription)
+
+@router.put("/update-payment-method", response_model=app.models.SubscriptionResponse)
+async def update_subscription_payment_method(
+    payment_data: app.models.SubscriptionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update the payment method used for subscription
+    """
+    user_email = current_user["user_email"]
+    user = Collection_billing.find_one({"user_email": user_email})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    subscription = user.get("subscription")
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No subscription found")
+    
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(status_code=400, detail="No customer record found")
+    
+    try:
+        # Attach payment method to customer
+        await StripeService.attach_payment_method_to_customer(
+            payment_method_id=payment_data.payment_method_id,
+            customer_id=stripe_customer_id
+        )
+        
+        # Set as default payment method
+        await StripeService.set_default_payment_method(
+            customer_id=stripe_customer_id,
+            payment_method_id=payment_data.payment_method_id
+        )
+        
+        # Store payment method info in our database
+        payment_method = stripe.PaymentMethod.retrieve(payment_data.payment_method_id)
+        card_info = payment_method.card
+        
+        payment_method_record = {
+            "stripe_payment_method_id": payment_data.payment_method_id,
+            "cardholder_name": payment_data.cardholder_name,
+            "card_last4": card_info.last4,
+            "card_expiry": f"{card_info.exp_month:02d}/{str(card_info.exp_year)[-2:]}",
+            "card_brand": card_info.brand,
+            "billing_address": payment_data.billing_address,
+            "is_default": True
+        }
+        
+        # Set existing payment methods to non-default
+        Collection_billing.update_many(
+            {"user_email": user_email, "payment_methods.is_default": True},
+            {"$set": {"payment_methods.$.is_default": False}}
+        )
+        
+        # Add new payment method
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$push": {"payment_methods": payment_method_record}}
+        )
+        
+        return app.models.SubscriptionResponse(
+            success=True,
+            message="Payment method updated successfully",
+            subscription_id=subscription["subscription_id"],
+            status=subscription["status"]
+        )
+    except stripe.error.CardError as e:
+        raise HTTPException(status_code=400, detail=f"Card error: {e.user_message}")
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update payment method: {str(e)}")
+
+@router.get("/billingstatus", response_model=dict)
+async def get_billing_status(current_user: dict = Depends(get_current_user)):
+    """
+    Check if the user has an active subscription.
+    """
+    user_email = current_user["user_email"]
+    
+    # Get user from database
+    user = Collection_billing.find_one({"user_email": user_email})
+    if not user:
+        return {"has_subscription": False}
+    
+    # Check subscription status
+    subscription = user.get("subscription", {})
+    if subscription:
+        current_period_end = datetime.strptime(subscription.get("current_period_end", ""), "%Y-%m-%d").date()
+        today = datetime.now().date()
+        has_active_subscription = subscription.get("status") == "active" or (subscription.get("status") == "canceled" and today <= current_period_end)
+    else:
+        has_active_subscription = False
+    
+    return {"has_subscription": has_active_subscription}
+
+# Enhanced webhook handler with email notifications
+@router.post("/webhook", status_code=200)
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Handle Stripe webhook events for subscription lifecycle
+    """
+    payload = await request.body()
+    sig_header = request.headers.get('stripe-signature')
+    
+    try:
+        # Verify webhook signature using your webhook secret
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    
+    # Handle specific webhook events
+    if event['type'] == 'invoice.payment_succeeded':
+        invoice = event['data']['object']
+        subscription_id = invoice.get('subscription')
+        
+        if subscription_id:
+            # Find user with this subscription
+            user = Collection_billing.find_one({"subscription.subscription_id": subscription_id})
+            
+            if user:
+                user_email = user.get("user_email")
+                # Record payment history for the subscription
+                Collection_billing.update_one(
+                    {"_id": user["_id"]},
+                    {"$push": {
+                        "subscription.payment_history": {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "purchase_id": f"SUB-{uuid.uuid4().hex[:8].upper()}",
+                            "amount": invoice.amount_paid / 100.0,  # Convert cents to dollars
+                            "type": "subscription",
+                            "description": "Monthly Subscription Renewal",
+                            "status": "completed"
+                        }
+                    }}
+                )
+                
+                # Send payment success email
+                if user_email:
+                    background_tasks.add_task(
+                        app.services.send_subscription_renewal_email,
+                        user_email,
+                        invoice.amount_paid / 100.0
+                    )
+    
+    elif event['type'] == 'invoice.payment_failed':
+        invoice = event['data']['object']
+        subscription_id = invoice.get('subscription')
+        
+        if subscription_id:
+            # Update subscription status
+            user = Collection_billing.find_one({"subscription.subscription_id": subscription_id})
+            
+            if user:
+                user_email = user.get("user_email")
+                # Mark payment as failed for the subscription
+                Collection_billing.update_one(
+                    {"_id": user["_id"]},
+                    {"$push": {
+                        "subscription.payment_history": {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "purchase_id": f"SUB-{uuid.uuid4().hex[:8].upper()}",
+                            "amount": invoice.amount_due / 100.0,
+                            "type": "subscription",
+                            "description": "Monthly Subscription Renewal - Failed",
+                            "status": "failed"
+                        }
+                    }}
+                )
+                
+                # Send payment failed email
+                if user_email:
+                    background_tasks.add_task(
+                        app.services.send_payment_failed_email,
+                        user_email,
+                        invoice.amount_due / 100.0
+                    )
+    
+    elif event['type'] == 'customer.subscription.deleted':
+        subscription = event['data']['object']
+        
+        # Find user with this subscription
+        user = Collection_billing.find_one({"subscription.subscription_id": subscription.id})
+        
+        # Update user's subscription status when cancelled
+        if user:
+            user_email = user.get("user_email")
+            Collection_billing.update_one(
+                {"subscription.subscription_id": subscription.id},
+                {"$set": {
+                    "subscription.status": "canceled",
+                    "subscription.auto_renew": False
+                }}
+            )
+            
+            # Send subscription ended email if it was auto-cancelled by Stripe
+            if user_email:
+                background_tasks.add_task(
+                    app.services.send_subscription_ended_email,
+                    user_email
+                )
+    
+    return {"status": "success"}

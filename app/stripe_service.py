@@ -1,7 +1,7 @@
 import stripe
 from fastapi import HTTPException
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List, Optional
 from app.models import PaymentMethod, AddPaymentMethod
 from app.config import STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY
 
@@ -51,6 +51,60 @@ class StripeService:
                 customer=customer_id,
             )
             return True
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    @staticmethod
+    async def set_default_payment_method(customer_id: str, payment_method_id: str) -> bool:
+        try:
+            stripe.Customer.modify(
+                customer_id,
+                invoice_settings={
+                    "default_payment_method": payment_method_id
+                }
+            )
+            return True
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    @staticmethod
+    async def create_subscription(
+        customer_id: str,
+        price_id: str,
+        payment_method_id: Optional[str] = None,
+        trial_days: int = 0,
+        metadata: dict = None
+    ) -> Dict:
+        try:
+            subscription_data = {
+                "customer": customer_id,
+                "items": [{"price": price_id}],
+                "metadata": metadata or {},
+                "expand": ["latest_invoice.payment_intent"]
+            }
+            
+            if payment_method_id:
+                subscription_data["default_payment_method"] = payment_method_id
+            
+            if trial_days > 0:
+                subscription_data["trial_period_days"] = trial_days
+            
+            subscription = stripe.Subscription.create(**subscription_data)
+            return subscription
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    @staticmethod
+    async def cancel_subscription(subscription_id: str) -> Dict:
+        try:
+            return stripe.Subscription.delete(subscription_id)
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    @staticmethod
+    async def get_subscription(subscription_id: str) -> Dict:
+        try:
+            return stripe.Subscription.retrieve(subscription_id)
         except stripe.error.StripeError as e:
             raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
 
