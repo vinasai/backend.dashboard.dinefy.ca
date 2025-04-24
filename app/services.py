@@ -74,14 +74,18 @@ def login_user_manual(user_login, ACCESS_TOKEN_EXPIRE_MINUTES):
     access_token = create_access_token(
         data={"email": user_login.email}, expires_delta=access_token_expires
     )
-    #find user role
+    # Find user role
     user = collection_user.find_one({"user_email": user_login.email})
     if user:
         role = user.get("role", "user")  # Default to 'user' if role is not found
     else:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return {"access_token": access_token , "role": role}
+    # Check if user exists in the billing collection
+    user_in_billing = Collection_billing.find_one({"user_email": user_login.email})
+    is_in_billing = bool(user_in_billing)
+
+    return {"access_token": access_token, "role": role, "is_in_billing": is_in_billing}
 
 async def updated_user_email(email_data, current_user):
     """
