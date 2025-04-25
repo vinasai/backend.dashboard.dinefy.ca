@@ -659,7 +659,6 @@ async def purchase_minutes(purchase_data, current_user):
             "purchase_id": purchase_id,
             "amount": amount,
             "minutes": minutes,
-            "stripe_payment_intent_id": confirmed_intent.id,
             "status": "completed"
         }
         

@@ -480,6 +480,20 @@ async def create_subscription(
             "monthly"
         )
         
+        # Record successful payment
+        payment_record = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "purchase_id": "PUR-Free",
+            "amount": "Free",
+            "minutes": 1000,
+            "status": "completed"
+        }
+        
+        Collection_billing.update_one(
+            {"user_email": user_email},
+            {"$push": {"payment_history": payment_record}}
+        )
+        
         return app.models.SubscriptionResponse(
             success=True,
             message="Subscription activated successfully",
@@ -751,6 +765,27 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                                     "status": "completed"
                                 }
                             }}
+                        )
+                        
+                        
+                        # Remove any previous free minutes record with the same purchase ID
+                        Collection_billing.update_one(
+                            {"user_email": user_email},
+                            {"$pull": {"payment_history": {"purchase_id": "PUR-Free"}}}
+                        )
+                        
+                        # Add the new free minutes record
+                        payment_record = {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "purchase_id": "PUR-Free",
+                            "amount": "Free",
+                            "minutes": 1000,
+                            "status": "completed"
+                        }
+                        
+                        Collection_billing.update_one(
+                            {"user_email": user_email},
+                            {"$push": {"payment_history": payment_record}}
                         )
                         
                         # Send payment success email for renewals
