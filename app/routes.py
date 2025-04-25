@@ -701,10 +701,10 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
     
-    # Handle specific webhook events
     if event['type'] == 'invoice.payment_succeeded':
         invoice = event['data']['object']
         subscription_id = invoice.get('subscription')
+        print(f"Subscription ID: {subscription_id}")
         
         if subscription_id:
             # Find user with this subscription
@@ -712,28 +712,54 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             
             if user:
                 user_email = user.get("user_email")
-                # Record payment history for the subscription
-                Collection_billing.update_one(
-                    {"_id": user["_id"]},
-                    {"$push": {
-                        "subscription.payment_history": {
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "purchase_id": f"SUB-{uuid.uuid4().hex[:8].upper()}",
-                            "amount": invoice.amount_paid / 100.0,  # Convert cents to dollars
-                            "type": "subscription",
-                            "description": "Monthly Subscription Renewal",
-                            "status": "completed"
-                        }
-                    }}
-                )
                 
-                # Send payment success email
-                if user_email:
-                    background_tasks.add_task(
-                        app.services.send_subscription_renewal_email,
-                        user_email,
-                        invoice.amount_paid / 100.0
-                    )
+                # Check the invoice's billing_reason
+                billing_reason = invoice.get('billing_reason')
+                print(f"Billing reason: {invoice.get('billing_reason')}")
+                
+                # Only process as renewal if billing_reason is 'subscription_cycle'
+                if billing_reason == 'subscription_cycle':
+                    # Get the current date
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    
+                    # Check if this is truly a renewal or just a duplicate event
+                    # by checking if there's already a payment for today
+                    subscription = user.get("subscription", {})
+                    payment_history = subscription.get("payment_history", [])
+                    
+                    # Check if there's already a payment for today
+                    payment_for_today = False
+                    for payment in payment_history:
+                        if payment.get("date") == today:
+                            payment_for_today = True
+                            break
+                    
+                    # Check if the subscription was created today
+                    subscription_created_today = subscription.get("start_date") == today
+                    
+                    # Only add payment if it's not a duplicate and not the initial payment
+                    if not payment_for_today or not subscription_created_today:
+                        Collection_billing.update_one(
+                            {"_id": user["_id"]},
+                            {"$push": {
+                                "subscription.payment_history": {
+                                    "date": today,
+                                    "purchase_id": f"SUB-{uuid.uuid4().hex[:8].upper()}",
+                                    "amount": invoice.amount_paid / 100.0,
+                                    "type": "subscription",
+                                    "description": "Monthly Subscription Renewal",
+                                    "status": "completed"
+                                }
+                            }}
+                        )
+                        
+                        # Send payment success email for renewals
+                        if user_email:
+                            background_tasks.add_task(
+                                app.services.send_subscription_renewal_email,
+                                user_email,
+                                invoice.amount_paid / 100.0
+                            )
     
     elif event['type'] == 'invoice.payment_failed':
         invoice = event['data']['object']
