@@ -1461,7 +1461,20 @@ async def send_subscription_ended_email(email: str):
     except Exception as e:
         print(f"Failed to send subscription ended email: {e}")
         return False
-    
+ 
+async def get_restaurant_name(current_user):
+    try:
+        user_email = current_user["user_email"]
+        # Retrieve restaurant details for the user
+        restaurant = collection_restaurant.find_one({"user_email": user_email}, {"restaurant_name": 1})
+        if restaurant and restaurant.get("restaurant_name"):
+            return restaurant.get("restaurant_name")
+        else:
+            return None
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving restaurant name: {str(e)}")
+        
+          
 #admin services  
 async def get_all_restaurents_details_service(current_user):
     """

@@ -346,10 +346,10 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     
     return result
 
-@router.post("/send-email")
-async def send_email(request: app.models.DemoRequest):
-    return await app.services.send_email(request)
-   
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
+       
 # Modified subscribe route with email notification
 @router.post("/subscribe", response_model=app.models.SubscriptionResponse)
 async def create_subscription(
@@ -844,10 +844,9 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     
     return {"status": "success"}
 
-@router.post("/contact-email")
-async def contact_email(request: app.models.ContactRequest):
-    return await app.services.contact_email(request)
-
+@router.get("/restaurent_name")
+async def restaurant_name(current_user: str = Depends(get_current_user)):
+    return await app.services.get_restaurant_name(current_user)
 
 #admin routes
 @router.get("/admin/allrestaurentdetails")
