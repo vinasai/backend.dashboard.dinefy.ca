@@ -1155,49 +1155,6 @@ def create_new_user(user: User):
     
     return {"message": "User created successfully"}
 
-async def get_all_restaurents_details_service(current_user):
-    """
-    Retrieve all restaurant details from the restaurant details collection.
-    """
-    try:
-        # Query the restaurant collection to retrieve all documents
-        restaurants = collection_restaurant.find({}, {"_id": 1, "restaurant_name": 1, "address": 1, "user_email": 1, "phone_number": 1, "website": 1, "features": 1, "greetingMessage": 1, "endingMessage": 1})
-        
-        # Convert the cursor to a list and include the ObjectId as a string
-        restaurant_list = []
-        for restaurant in restaurants:
-            # Retrieve integrations for the user
-            integrations = collection_integrations.find_one({"user_email": restaurant.get("user_email", "")})
-            integration_status = {
-            "shopify": integrations.get("integrations", {}).get("shopify", {}).get("connected", False) if integrations else False,
-            "clover": integrations.get("integrations", {}).get("clover", {}).get("connected", False) if integrations else False,
-            }
-            
-            twilionumber = collection_user.find_one({"user_email": restaurant.get("user_email", "")})
-            if twilionumber:
-                restaurant["twilio_number"] = twilionumber.get("twilio_number", "")
-            
-            restaurant_list.append({
-            "id": str(restaurant["_id"]),
-            "email": restaurant.get("user_email", ""),
-            "restaurantName": restaurant.get("restaurant_name", ""),
-            "phoneNumber": restaurant.get("phone_number", ""),
-            "address": restaurant.get("address", ""),
-            "website": restaurant.get("website", ""),
-            "twilioNumber": restaurant.get("twilio_number", ""),
-            "integrations": integration_status,
-            "features": restaurant.get("features", {}),
-            "messages": {
-                "greeting": restaurant.get("greetingMessage", ""),
-                "ending": restaurant.get("endingMessage", "")
-            }
-            })
-        
-        return restaurant_list
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving restaurant details: {str(e)}")
-
-
 async def send_subscription_confirmation_email(email: str, plan_type: str = "monthly"):
     """
     Send email confirmation when a user subscribes to a plan
@@ -1504,3 +1461,46 @@ async def send_subscription_ended_email(email: str):
     except Exception as e:
         print(f"Failed to send subscription ended email: {e}")
         return False
+    
+#admin services  
+async def get_all_restaurents_details_service(current_user):
+    """
+    Retrieve all restaurant details from the restaurant details collection.
+    """
+    try:
+        # Query the restaurant collection to retrieve all documents
+        restaurants = collection_restaurant.find({}, {"_id": 1, "restaurant_name": 1, "address": 1, "user_email": 1, "phone_number": 1, "website": 1, "features": 1, "greetingMessage": 1, "endingMessage": 1})
+        
+        # Convert the cursor to a list and include the ObjectId as a string
+        restaurant_list = []
+        for restaurant in restaurants:
+            # Retrieve integrations for the user
+            integrations = collection_integrations.find_one({"user_email": restaurant.get("user_email", "")})
+            integration_status = {
+            "shopify": integrations.get("integrations", {}).get("shopify", {}).get("connected", False) if integrations else False,
+            "clover": integrations.get("integrations", {}).get("clover", {}).get("connected", False) if integrations else False,
+            }
+            
+            twilionumber = collection_user.find_one({"user_email": restaurant.get("user_email", "")})
+            if twilionumber:
+                restaurant["twilio_number"] = twilionumber.get("twilio_number", "")
+            
+            restaurant_list.append({
+            "id": str(restaurant["_id"]),
+            "email": restaurant.get("user_email", ""),
+            "restaurantName": restaurant.get("restaurant_name", ""),
+            "phoneNumber": restaurant.get("phone_number", ""),
+            "address": restaurant.get("address", ""),
+            "website": restaurant.get("website", ""),
+            "twilioNumber": restaurant.get("twilio_number", ""),
+            "integrations": integration_status,
+            "features": restaurant.get("features", {}),
+            "messages": {
+                "greeting": restaurant.get("greetingMessage", ""),
+                "ending": restaurant.get("endingMessage", "")
+            }
+            })
+        
+        return restaurant_list
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving restaurant details: {str(e)}")

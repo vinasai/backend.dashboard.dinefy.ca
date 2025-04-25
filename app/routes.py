@@ -349,18 +349,7 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
 @router.post("/send-email")
 async def send_email(request: app.models.DemoRequest):
     return await app.services.send_email(request)
-
-@router.get("/admin/allrestaurentdetails")
-async def get_all_restaurents_details(current_user: User = Depends(get_current_user)):
-    """
-    Retrieve all users with their details.
-    """
-    try:
-        users = await app.services.get_all_restaurents_details_service(current_user)
-        return users
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
+   
 # Modified subscribe route with email notification
 @router.post("/subscribe", response_model=app.models.SubscriptionResponse)
 async def create_subscription(
@@ -858,3 +847,16 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 @router.post("/contact-email")
 async def contact_email(request: app.models.ContactRequest):
     return await app.services.contact_email(request)
+
+
+#admin routes
+@router.get("/admin/allrestaurentdetails")
+async def get_all_restaurents_details(current_user: User = Depends(get_current_user)):
+    """
+    Retrieve all users with their details.
+    """
+    try:
+        users = await app.services.get_all_restaurents_details_service(current_user)
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
