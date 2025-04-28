@@ -309,4 +309,10 @@ class UserDetailsResponse(BaseModel):
     features: Features
     greetingMessage: str
     endingMessage: str
-    
+
+class CreditPurchaseRequest(BaseModel):
+    service: str
+    amount: float
+    date: str
+    description: str
+    invoiceNumber: str

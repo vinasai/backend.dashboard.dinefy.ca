@@ -19,6 +19,7 @@ from fastapi import BackgroundTasks
 import uuid
 import stripe
 from app.config import STRIPE_WEBHOOK_SECRET, MONTHLY_SUBSCRIPTION_PRICE_ID
+from typing import Optional
 
 
 router = APIRouter()
@@ -859,3 +860,51 @@ async def get_all_restaurents_details(current_user: User = Depends(get_current_u
         return users
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/admin/payments")
+async def get_payments(
+    user_email: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    search_email: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrieve payment history for all users (admin) or a specific user
+    - No parameters: return all users' payments (admin only)
+    - user_email: filter by specific user
+    - search_email: search users by email pattern (admin only)
+    - start_date/end_date: filter by date range
+    """
+    return await app.services.get_payments_service(current_user, user_email, start_date, end_date, search_email)
+
+@router.get("/admin/users")
+async def get_users(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrieve all users with billing information (admin only)
+    """
+    return await app.services.get_billing_users_service(current_user)
+
+@router.get("/admin/credits")
+async def get_credit_purchases(
+    service: Optional[str] = Query(None, description="Filter by service (twilio, openai, all)"),
+    start_date: Optional[str] = Query(None, description="Filter by start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by end date (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all credit purchases with optional filters
+    """
+    return await app.services.get_credit_purchases_service(current_user, service, start_date, end_date)
+
+@router.post("/admin/credits/purchase")
+async def add_credit_purchase(
+    purchase: app.models.CreditPurchaseRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Add a new credit purchase
+    """
+    return await app.services.add_credit_purchase_service(current_user, purchase.dict())

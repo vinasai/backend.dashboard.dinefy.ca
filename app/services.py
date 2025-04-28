@@ -9,7 +9,7 @@ from pymongo import DESCENDING
 from typing import List
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
-from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset,Collection_billing,collection_email_verification 
+from app.database import collection_restaurant, collection_call_logs ,collection_integrations, collection_user,collection_password_reset,Collection_billing,collection_email_verification,Collection_admin_billing
 from jwt.exceptions import PyJWTError
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
@@ -27,7 +27,8 @@ from app.config import (
     MAIL_PORT, MAIL_SERVER, MAIL_FROM_NAME,
     MAIL_STARTTLS, MAIL_SSL_TLS
 )
-
+from typing import Optional
+from datetime import datetime, date
 
 # Configure FastMail
 conf = ConnectionConfig(
@@ -1517,3 +1518,366 @@ async def get_all_restaurents_details_service(current_user):
         return restaurant_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving restaurant details: {str(e)}")
+
+async def get_payments_service(current_user: dict, user_email: Optional[str] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, search_email: Optional[str] = None):
+    """
+    Retrieve payment history for the authenticated user or a specific user (admin only)
+    """
+    try:
+        # Check if the current user is admin
+        user_data = collection_user.find_one({"user_email": current_user["user_email"]})
+        is_admin = user_data and user_data.get("role") == "admin"
+        
+        # If not admin and trying to access other user's data
+        if not is_admin and user_email and user_email != current_user["user_email"]:
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # For admin users, fetch all payments if no specific user is requested
+        if is_admin and not user_email and not search_email:
+            # Get all users with billing data
+            all_payments = []
+            billing_cursor = Collection_billing.find({})
+            
+            for billing_data in billing_cursor:
+                user_email = billing_data.get("user_email")
+                if not user_email:
+                    continue
+                
+                # Get payments for this user
+                user_payments = billing_data.get("payment_history", [])
+                
+                # Add user email to each payment
+                for payment in user_payments:
+                    payment["user_email"] = user_email
+                
+                # Add subscription payments if they exist
+                if "subscription" in billing_data and "payment_history" in billing_data["subscription"]:
+                    subscription_payments = billing_data["subscription"]["payment_history"]
+                    
+                    # Add subscription tag and user email to subscription payments
+                    for payment in subscription_payments:
+                        if "type" not in payment:
+                            payment["type"] = "subscription"
+                        payment["user_email"] = user_email
+                    
+                    user_payments.extend(subscription_payments)
+                
+                all_payments.extend(user_payments)
+            
+            # Apply date filtering if needed
+            if start_date or end_date:
+                filtered_payments = []
+                for payment in all_payments:
+                    payment_date = datetime.strptime(payment["date"], "%Y-%m-%d").date()
+                    
+                    if start_date and payment_date < start_date:
+                        continue
+                        
+                    if end_date and payment_date > end_date:
+                        continue
+                        
+                    filtered_payments.append(payment)
+                
+                all_payments = filtered_payments
+            
+            # Sort payments by date (most recent first)
+            all_payments.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"), reverse=True)
+            
+            return {"payments": all_payments}
+        
+        # Handle search by email (admin only)
+        elif is_admin and search_email:
+            all_payments = []
+            # Find all users that match the search pattern
+            email_pattern = {"$regex": search_email, "$options": "i"}  # Case-insensitive search
+            billing_cursor = Collection_billing.find({"user_email": email_pattern})
+            
+            for billing_data in billing_cursor:
+                user_email = billing_data.get("user_email")
+                if not user_email:
+                    continue
+                
+                # Get payments for this user
+                user_payments = billing_data.get("payment_history", [])
+                
+                # Add user email to each payment
+                for payment in user_payments:
+                    payment["user_email"] = user_email
+                
+                # Add subscription payments if they exist
+                if "subscription" in billing_data and "payment_history" in billing_data["subscription"]:
+                    subscription_payments = billing_data["subscription"]["payment_history"]
+                    
+                    # Add subscription tag and user email to subscription payments
+                    for payment in subscription_payments:
+                        if "type" not in payment:
+                            payment["type"] = "subscription"
+                        payment["user_email"] = user_email
+                    
+                    user_payments.extend(subscription_payments)
+                
+                all_payments.extend(user_payments)
+            
+            # Apply date filtering if needed
+            if start_date or end_date:
+                filtered_payments = []
+                for payment in all_payments:
+                    payment_date = datetime.strptime(payment["date"], "%Y-%m-%d").date()
+                    
+                    if start_date and payment_date < start_date:
+                        continue
+                        
+                    if end_date and payment_date > end_date:
+                        continue
+                        
+                    filtered_payments.append(payment)
+                
+                all_payments = filtered_payments
+            
+            # Sort payments by date (most recent first)
+            all_payments.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"), reverse=True)
+            
+            return {"payments": all_payments}
+        
+        else:
+            # Original logic for specific user
+            # Determine which user's data to retrieve
+            target_email = user_email if user_email else current_user["user_email"]
+            
+            # Retrieve user's billing data
+            billing_data = Collection_billing.find_one({"user_email": target_email})
+            
+            if not billing_data:
+                return {"payments": []}
+            
+            # Extract payment history
+            payments = billing_data.get("payment_history", [])
+            
+            # Add user email to each payment
+            for payment in payments:
+                payment["user_email"] = target_email
+            
+            # Filter by date if provided
+            if start_date or end_date:
+                filtered_payments = []
+                for payment in payments:
+                    payment_date = datetime.strptime(payment["date"], "%Y-%m-%d").date()
+                    
+                    if start_date and payment_date < start_date:
+                        continue
+                        
+                    if end_date and payment_date > end_date:
+                        continue
+                        
+                    filtered_payments.append(payment)
+                
+                payments = filtered_payments
+                
+            # Add subscription payments if they exist
+            if "subscription" in billing_data and "payment_history" in billing_data["subscription"]:
+                subscription_payments = billing_data["subscription"]["payment_history"]
+                
+                # Filter subscription payments by date if provided
+                if start_date or end_date:
+                    filtered_sub_payments = []
+                    for payment in subscription_payments:
+                        payment_date = datetime.strptime(payment["date"], "%Y-%m-%d").date()
+                        
+                        if start_date and payment_date < start_date:
+                            continue
+                            
+                        if end_date and payment_date > end_date:
+                            continue
+                            
+                        filtered_sub_payments.append(payment)
+                    
+                    subscription_payments = filtered_sub_payments
+                
+                # Add subscription tag and user email to subscription payments
+                for payment in subscription_payments:
+                    if "type" not in payment:
+                        payment["type"] = "subscription"
+                    payment["user_email"] = target_email
+                
+                payments.extend(subscription_payments)
+            
+            # Sort payments by date (most recent first)
+            payments.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"), reverse=True)
+            
+            return {"payments": payments}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving payment history: {str(e)}")
+
+
+async def get_billing_users_service(current_user: dict):
+    """
+    Retrieve all users with billing information (admin only)
+    """
+    try:
+        # Check if current user is admin
+        user_data = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user_data or user_data.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Get all users with billing information
+        billing_cursor = Collection_billing.find({}, {"user_email": 1, "_id": 0})
+        users = []
+        
+        for billing_doc in billing_cursor:
+            user_email = billing_doc.get("user_email")
+            if user_email:
+                # Get additional user info from users collection
+                user_doc = collection_user.find_one({"user_email": user_email}, 
+                                                  {"_id": 0, "user_email": 1, "role": 1, "twilio_number": 1})
+                                
+                if user_doc:
+                    user_info = {
+                        "email": user_email,
+                        "role": user_doc.get("role", "user"),
+                        "twilio_number": user_doc.get("twilio_number", "")
+                    }
+                                        
+                    users.append(user_info)
+        
+        return {"users": users}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving users: {str(e)}")
+    
+
+async def get_credit_purchases_service(current_user: dict, service: Optional[str] = None, 
+                                      start_date: Optional[str] = None, 
+                                      end_date: Optional[str] = None):
+    """
+    Retrieve credit purchases for admin
+    Default date range is month-to-date (first day of current month to today)
+    """
+    try:
+        # Check if current user is admin
+        user_data = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user_data or user_data.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Set default date range to month-to-date if not specified
+        today = datetime.now()
+        if not start_date and not end_date:
+            # First day of current month
+            start_date = datetime(today.year, today.month, 1).strftime("%Y-%m-%d")
+            # Today
+            end_date = today.strftime("%Y-%m-%d")
+        
+        # Build query for credit purchases
+        query = {}
+        
+        # Filter by service if provided
+        if service and service != "all":
+            query["service"] = service
+            
+        # Apply date filters
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                date_query["$gte"] = start_date
+            if end_date:
+                date_query["$lte"] = end_date
+            
+            if date_query:
+                query["date"] = date_query
+        
+        # Debug: Print the query to check its structure
+        print(f"MongoDB Query: {query}")
+        
+        # Execute query for admin billing data
+        purchases = list(Collection_admin_billing.find(query, {"_id": 0}))
+        
+        # Debug: Print the number of purchases found
+        print(f"Found {len(purchases)} purchases")
+        
+        # Calculate total amount from admin purchases
+        total_amount = sum(purchase.get("amount", 0) for purchase in purchases)
+        
+        # Calculate net earnings based on user purchased minutes
+        net_earnings = 0
+        
+        # Date filters for user payment history
+        user_date_filter = {}
+        if start_date:
+            user_date_filter["$gte"] = start_date
+        if end_date:
+            user_date_filter["$lte"] = end_date
+        
+        # Get all users' billing data
+        user_billing_cursor = Collection_billing.find({})
+        
+        # Calculate net earnings from all users' purchased minutes
+        for billing_data in user_billing_cursor:
+            payment_history = billing_data.get("payment_history", [])
+                        
+            for payment in payment_history:
+                # Check if payment contains minutes and meets date criteria
+                if "minutes" in payment:
+                    # Apply date filter if specified
+                    if "date" in payment:
+                        payment_date = payment["date"]
+                        if user_date_filter.get("$gte") and payment_date < user_date_filter["$gte"]:
+                            continue
+                        if user_date_filter.get("$lte") and payment_date > user_date_filter["$lte"]:
+                            continue
+                    
+                    # Calculate earnings per minute (0.15 - 0.0485)
+                    net_earnings += payment["minutes"] * (0.15 - 0.0485)
+        
+        return {
+            "purchases": purchases,
+            "total_amount": total_amount,
+            "net_earnings": net_earnings
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving credit purchases: {str(e)}")
+
+async def add_credit_purchase_service(current_user: dict, purchase_data: dict):
+    """
+    Add a new credit purchase
+    """
+    try:
+        # Check if current user is admin
+        user_data = collection_user.find_one({"user_email": current_user["user_email"]})
+        if not user_data or user_data.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Validate required fields
+        required_fields = ["service", "amount", "date", "description", "invoiceNumber"]
+        for field in required_fields:
+            if field not in purchase_data:
+                raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+        
+        # Format date if it's a datetime object
+        if isinstance(purchase_data["date"], datetime):
+            purchase_data["date"] = purchase_data["date"].strftime("%Y-%m-%d")
+            
+        # Ensure amount is a number
+        try:
+            purchase_data["amount"] = float(purchase_data["amount"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Amount must be a valid number")
+        
+        # Add purchase ID and timestamp
+        purchase_data["purchase_id"] = str(ObjectId())
+        purchase_data["created_at"] = datetime.now().isoformat()
+        purchase_data["created_by"] = current_user["user_email"]
+        
+        # Insert into database
+        result = Collection_admin_billing.insert_one(purchase_data)
+        
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to save purchase")
+            
+        return {"message": "Credit purchase added successfully", "purchase_id": str(result.inserted_id)}
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding credit purchase: {str(e)}")
+    
