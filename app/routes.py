@@ -877,7 +877,7 @@ async def overview(
     data = app.services.admin_overview_data(start, end, user_email)
     return data
 
-@router.get('/admin/users')
+@router.get('/admin/user')
 def get_users():
     users = list(collection_restaurant.find())
     result = [convert_objectid(d) for d in users]
