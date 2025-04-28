@@ -14,12 +14,12 @@ from typing import List
 from pydantic import EmailStr
 from app.stripe_service import StripeService
 from app.models import PaymentMethod, AddPaymentMethod, PurchaseResponse
-from app.database import Collection_billing
+from app.database import Collection_billing, collection_restaurant
 from fastapi import BackgroundTasks
 import uuid
 import stripe
 from app.config import STRIPE_WEBHOOK_SECRET, MONTHLY_SUBSCRIPTION_PRICE_ID
-
+from typing import Optional
 
 router = APIRouter()
 
@@ -860,3 +860,28 @@ async def get_all_restaurents_details(current_user: User = Depends(get_current_u
         return users
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/admin/overview")
+async def overview(
+    start_date: str = Query(..., description="Start date in YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date in YYYY-MM-DD"),
+    user_email: Optional[str] = Query(None, description="User email or 'all'")
+):
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return {"error": "Invalid date format. Use YYYY-MM-DD."}
+
+    data = app.services.admin_overview_data(start, end, user_email)
+    return data
+
+@router.get('/admin/users')
+def get_users():
+    users = list(collection_restaurant.find())
+    result = [convert_objectid(d) for d in users]
+    print(result)
+    return result
+def convert_objectid(doc):
+    doc["_id"] = str(doc["_id"])
+    return doc
