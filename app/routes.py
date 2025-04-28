@@ -20,6 +20,8 @@ import uuid
 import stripe
 from app.config import STRIPE_WEBHOOK_SECRET, MONTHLY_SUBSCRIPTION_PRICE_ID
 from typing import Optional
+from typing import Optional
+
 
 router = APIRouter()
 
@@ -346,10 +348,10 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     
     return result
 
-@router.post("/send-email")
-async def send_email(request: app.models.DemoRequest):
-    return await app.services.send_email(request)
-   
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
+       
 # Modified subscribe route with email notification
 @router.post("/subscribe", response_model=app.models.SubscriptionResponse)
 async def create_subscription(
@@ -844,10 +846,9 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     
     return {"status": "success"}
 
-@router.post("/contact-email")
-async def contact_email(request: app.models.ContactRequest):
-    return await app.services.contact_email(request)
-
+@router.get("/restaurent_name")
+async def restaurant_name(current_user: str = Depends(get_current_user)):
+    return await app.services.get_restaurant_name(current_user)
 
 #admin routes
 @router.get("/admin/allrestaurentdetails")
@@ -885,3 +886,51 @@ def get_users():
 def convert_objectid(doc):
     doc["_id"] = str(doc["_id"])
     return doc
+    
+@router.get("/admin/payments")
+async def get_payments(
+    user_email: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    search_email: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrieve payment history for all users (admin) or a specific user
+    - No parameters: return all users' payments (admin only)
+    - user_email: filter by specific user
+    - search_email: search users by email pattern (admin only)
+    - start_date/end_date: filter by date range
+    """
+    return await app.services.get_payments_service(current_user, user_email, start_date, end_date, search_email)
+
+@router.get("/admin/users")
+async def get_users(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrieve all users with billing information (admin only)
+    """
+    return await app.services.get_billing_users_service(current_user)
+
+@router.get("/admin/credits")
+async def get_credit_purchases(
+    service: Optional[str] = Query(None, description="Filter by service (twilio, openai, all)"),
+    start_date: Optional[str] = Query(None, description="Filter by start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by end date (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all credit purchases with optional filters
+    """
+    return await app.services.get_credit_purchases_service(current_user, service, start_date, end_date)
+
+@router.post("/admin/credits/purchase")
+async def add_credit_purchase(
+    purchase: app.models.CreditPurchaseRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Add a new credit purchase
+    """
+    return await app.services.add_credit_purchase_service(current_user, purchase.dict())
