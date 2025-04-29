@@ -20,7 +20,6 @@ import uuid
 import stripe
 from app.config import STRIPE_WEBHOOK_SECRET, MONTHLY_SUBSCRIPTION_PRICE_ID
 from typing import Optional
-from typing import Optional
 
 
 router = APIRouter()
@@ -347,10 +346,6 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     )
     
     return result
-
-@router.post("/contact-email")
-async def contact_email(request: app.models.ContactRequest):
-    return await app.services.contact_email(request)
        
 # Modified subscribe route with email notification
 @router.post("/subscribe", response_model=app.models.SubscriptionResponse)
@@ -934,3 +929,12 @@ async def add_credit_purchase(
     Add a new credit purchase
     """
     return await app.services.add_credit_purchase_service(current_user, purchase.dict())
+
+#dinefy.ca
+@router.post("/send-email")
+async def demo_email(request: app.models.DemoRequest):
+    return await app.services.send_email(request)
+
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
