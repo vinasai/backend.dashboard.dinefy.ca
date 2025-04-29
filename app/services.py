@@ -2010,9 +2010,32 @@ def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Op
             "usage": round(usage_over_time.get(date, 0), 2),  # Round to 2 decimal places for readability
             "purchased": purchased_over_time.get(date, 0)
         })
+    # Filter twilio minutes
+    twilio_filter = {
+        "service":"twilio",
+    }
+    
+    # Filter openai minutes
+    openai_filter = {
+        "service":"openai",
+    }
+
+    twilio_records = list(Collection_admin_billing.find(twilio_filter))
+    openai_records = list(Collection_admin_billing.find(openai_filter))
+    
+    call_logs = list(collection_call_logs.find())
+    # Convert string duration to minutes before summing
+    total_used = sum(convert_duration_to_minutes(log.get("duration", "0:00")) for log in call_logs)
+
+    # Convert amount to minutes
+    total_twilio_minutes = sum(log.get("amount")/0.0085 for log in twilio_records) - total_used
+    total_openai_minutes = sum(log.get("amount")/0.04 for log in openai_records) - total_used
+
     return {
         "total_users": total_users,
         "total_used_minutes": round(total_used_minutes, 2),  # Round the total for consistency
         "total_purchased_minutes": total_purchased_minutes,
-        "graph_data": graph_data
+        "graph_data": graph_data,
+        "total_twilio_minutes":total_twilio_minutes,
+        "total_openai_minutes":total_openai_minutes
     }
