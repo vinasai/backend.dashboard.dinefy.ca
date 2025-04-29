@@ -1955,10 +1955,8 @@ def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Op
         billing_filter["user_email"] = user_email
     
     billing_records = list(Collection_billing.find(billing_filter))
-    
     # Extract and filter payment history from billing records
     payments = []
-    subscription_payments = []
     
     for billing in billing_records:
         # Extract payment history
@@ -1975,32 +1973,9 @@ def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Op
             payment["user_email"] = billing.get("user_email")
         
         payments.extend(filtered_payments)
-        
-        # Extract subscription payment history if available
-        subscription = billing.get("subscription")
-        if subscription:
-            sub_payments = subscription.get("payment_history", [])
-            
-            # Filter subscription payments by date
-            filtered_sub_payments = [
-                payment for payment in sub_payments
-                if start_date_str <= payment.get("date", "") <= end_date_str
-            ]
-            
-            # Add user email to each subscription payment
-            for payment in filtered_sub_payments:
-                payment["user_email"] = billing.get("user_email")
-            
-            subscription_payments.extend(filtered_sub_payments)
     
     # Calculate total purchased minutes
     total_purchased_minutes = sum(payment.get("minutes", 0) for payment in payments)
-    
-    # Add subscription minutes if relevant
-    # Note: You might need to adjust this if subscription payments are calculated differently
-    for sub_payment in subscription_payments:
-        if "minutes" in sub_payment:
-            total_purchased_minutes += sub_payment.get("minutes", 0)
     
     # Prepare usage and purchased minutes over time
     usage_over_time = {}
@@ -2015,12 +1990,6 @@ def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Op
     for payment in payments:
         date = payment["date"]
         purchased_over_time[date] = purchased_over_time.get(date, 0) + payment.get("minutes", 0)
-    
-    # Add subscription payments to purchased_over_time
-    for payment in subscription_payments:
-        if "minutes" in payment:
-            date = payment["date"]
-            purchased_over_time[date] = purchased_over_time.get(date, 0) + payment.get("minutes", 0)
     
     # Prepare the graph data
     all_dates = sorted(set(list(usage_over_time.keys()) + list(purchased_over_time.keys())))
