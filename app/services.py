@@ -1156,6 +1156,7 @@ def create_new_user(user: User):
     user_data["user_pw"] = hashed_password
     user_data["verified"] = True
     user_data["created_at"] = datetime.utcnow()
+    user_data["role"] = "user"
     
     # Insert user data into MongoDB
     inserted_user = collection_user.insert_one(user_data)
@@ -1555,19 +1556,25 @@ async def get_payments_service(current_user: dict, user_email: Optional[str] = N
                 # Get payments for this user
                 user_payments = billing_data.get("payment_history", [])
                 
-                # Add user email to each payment
+                # Get restaurant info for this user
+                restaurant = collection_restaurant.find_one({"user_email": user_email}, {"restaurant_name": 1})
+                restaurant_name = restaurant.get("restaurant_name") if restaurant else None
+                
+                # Add user email and restaurant name to each payment
                 for payment in user_payments:
                     payment["user_email"] = user_email
+                    payment["restaurant_name"] = restaurant_name
                 
                 # Add subscription payments if they exist
                 if "subscription" in billing_data and "payment_history" in billing_data["subscription"]:
                     subscription_payments = billing_data["subscription"]["payment_history"]
                     
-                    # Add subscription tag and user email to subscription payments
+                    # Add subscription tag, user email and restaurant name to subscription payments
                     for payment in subscription_payments:
                         if "type" not in payment:
                             payment["type"] = "subscription"
                         payment["user_email"] = user_email
+                        payment["restaurant_name"] = restaurant_name
                     
                     user_payments.extend(subscription_payments)
                 
@@ -1609,19 +1616,25 @@ async def get_payments_service(current_user: dict, user_email: Optional[str] = N
                 # Get payments for this user
                 user_payments = billing_data.get("payment_history", [])
                 
-                # Add user email to each payment
+                # Get restaurant info for this user
+                restaurant = collection_restaurant.find_one({"user_email": user_email}, {"restaurant_name": 1})
+                restaurant_name = restaurant.get("restaurant_name") if restaurant else None
+                
+                # Add user email and restaurant name to each payment
                 for payment in user_payments:
                     payment["user_email"] = user_email
+                    payment["restaurant_name"] = restaurant_name
                 
                 # Add subscription payments if they exist
                 if "subscription" in billing_data and "payment_history" in billing_data["subscription"]:
                     subscription_payments = billing_data["subscription"]["payment_history"]
                     
-                    # Add subscription tag and user email to subscription payments
+                    # Add subscription tag, user email and restaurant name to subscription payments
                     for payment in subscription_payments:
                         if "type" not in payment:
                             payment["type"] = "subscription"
                         payment["user_email"] = user_email
+                        payment["restaurant_name"] = restaurant_name
                     
                     user_payments.extend(subscription_payments)
                 
@@ -1659,12 +1672,17 @@ async def get_payments_service(current_user: dict, user_email: Optional[str] = N
             if not billing_data:
                 return {"payments": []}
             
+            # Retrieve restaurant name for the user
+            restaurant = collection_restaurant.find_one({"user_email": target_email}, {"restaurant_name": 1})
+            restaurant_name = restaurant.get("restaurant_name") if restaurant else None
+            
             # Extract payment history
             payments = billing_data.get("payment_history", [])
             
-            # Add user email to each payment
+            # Add user email and restaurant name to each payment
             for payment in payments:
                 payment["user_email"] = target_email
+                payment["restaurant_name"] = restaurant_name
             
             # Filter by date if provided
             if start_date or end_date:
@@ -1702,18 +1720,19 @@ async def get_payments_service(current_user: dict, user_email: Optional[str] = N
                     
                     subscription_payments = filtered_sub_payments
                 
-                # Add subscription tag and user email to subscription payments
+                # Add subscription tag, user email and restaurant name to subscription payments
                 for payment in subscription_payments:
                     if "type" not in payment:
                         payment["type"] = "subscription"
                     payment["user_email"] = target_email
+                    payment["restaurant_name"] = restaurant_name
                 
                 payments.extend(subscription_payments)
             
             # Sort payments by date (most recent first)
             payments.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"), reverse=True)
             
-            return {"payments": payments}
+            return {"payments": payments, "restaurant_name": restaurant_name}
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving payment history: {str(e)}")
@@ -1760,21 +1779,13 @@ async def get_credit_purchases_service(current_user: dict, service: Optional[str
                                       end_date: Optional[str] = None):
     """
     Retrieve credit purchases for admin
-    Default date range is month-to-date (first day of current month to today)
+    Default is to show all purchases when no filters are applied
     """
     try:
         # Check if current user is admin
         user_data = collection_user.find_one({"user_email": current_user["user_email"]})
         if not user_data or user_data.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Permission denied")
-        
-        # Set default date range to month-to-date if not specified
-        today = datetime.now()
-        if not start_date and not end_date:
-            # First day of current month
-            start_date = datetime(today.year, today.month, 1).strftime("%Y-%m-%d")
-            # Today
-            end_date = today.strftime("%Y-%m-%d")
         
         # Build query for credit purchases
         query = {}
@@ -1783,7 +1794,7 @@ async def get_credit_purchases_service(current_user: dict, service: Optional[str
         if service and service != "all":
             query["service"] = service
             
-        # Apply date filters
+        # Apply date filters only if explicitly provided
         if start_date or end_date:
             date_query = {}
             if start_date:
@@ -1798,7 +1809,8 @@ async def get_credit_purchases_service(current_user: dict, service: Optional[str
         print(f"MongoDB Query: {query}")
         
         # Execute query for admin billing data
-        purchases = list(Collection_admin_billing.find(query, {"_id": 0}))
+        # Sort by date descending to show newest purchases first
+        purchases = list(Collection_admin_billing.find(query, {"_id": 0}).sort("date", -1))
         
         # Debug: Print the number of purchases found
         print(f"Found {len(purchases)} purchases")
@@ -1809,7 +1821,7 @@ async def get_credit_purchases_service(current_user: dict, service: Optional[str
         # Calculate net earnings based on user purchased minutes
         net_earnings = 0
         
-        # Date filters for user payment history
+        # Date filters for user payment history - only apply if explicitly provided
         user_date_filter = {}
         if start_date:
             user_date_filter["$gte"] = start_date
@@ -1824,10 +1836,10 @@ async def get_credit_purchases_service(current_user: dict, service: Optional[str
             payment_history = billing_data.get("payment_history", [])
                         
             for payment in payment_history:
-                # Check if payment contains minutes and meets date criteria
+                # Check if payment contains minutes
                 if "minutes" in payment:
-                    # Apply date filter if specified
-                    if "date" in payment:
+                    # Apply date filter only if specified
+                    if user_date_filter and "date" in payment:
                         payment_date = payment["date"]
                         if user_date_filter.get("$gte") and payment_date < user_date_filter["$gte"]:
                             continue
