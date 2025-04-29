@@ -1881,6 +1881,165 @@ async def add_credit_purchase_service(current_user: dict, purchase_data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding credit purchase: {str(e)}")
     
+def convert_duration_to_minutes(duration_str: str) -> float:
+    """
+    Convert duration string in format "minutes:seconds" to decimal minutes
+    Example: "1:21" -> 1.35 (1 minute 21 seconds = 1.35 minutes)
+    """
+    try:
+        if not duration_str:
+            return 0.0
+        
+        parts = duration_str.split(":")
+        if len(parts) == 2:
+            minutes = int(parts[0])
+            seconds = int(parts[1])
+            return minutes + (seconds / 60)
+        else:
+            # If format is unexpected, try to convert directly to float
+            return float(duration_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Optional[str] = None): 
+    # Filter users
+    if user_email and user_email != "all":
+        users_filter = {"user_email": user_email}
+    else:
+        users_filter = {}
+    users = list(collection_user.find(users_filter))
+    total_users = len(users)
+    
+    # Filter call logs
+    call_logs_filter = {
+        "date_time": {
+            "$gte": start_date.isoformat(),
+            "$lte": end_date.isoformat()
+        }
+    }
+    if user_email and user_email != "all":
+        call_logs_filter["user_email"] = user_email
+    call_logs = list(collection_call_logs.find(call_logs_filter))
+    
+    # Convert string duration to minutes before summing
+    total_used_minutes = sum(convert_duration_to_minutes(log.get("duration", "0:00")) for log in call_logs)
+    
+    # Prepare date strings for comparison
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
+    
+    # Filter billing records
+    billing_filter = {}
+    if user_email and user_email != "all":
+        billing_filter["user_email"] = user_email
+    
+    billing_records = list(Collection_billing.find(billing_filter))
+    
+    # Extract and filter payment history from billing records
+    payments = []
+    subscription_payments = []
+    
+    for billing in billing_records:
+        # Extract payment history
+        payment_history = billing.get("payment_history", [])
+        
+        # Filter by date
+        filtered_payments = [
+            payment for payment in payment_history
+            if start_date_str <= payment.get("date", "") <= end_date_str
+        ]
+        
+        # Add user email to each payment
+        for payment in filtered_payments:
+            payment["user_email"] = billing.get("user_email")
+        
+        payments.extend(filtered_payments)
+        
+        # Extract subscription payment history if available
+        subscription = billing.get("subscription")
+        if subscription:
+            sub_payments = subscription.get("payment_history", [])
+            
+            # Filter subscription payments by date
+            filtered_sub_payments = [
+                payment for payment in sub_payments
+                if start_date_str <= payment.get("date", "") <= end_date_str
+            ]
+            
+            # Add user email to each subscription payment
+            for payment in filtered_sub_payments:
+                payment["user_email"] = billing.get("user_email")
+            
+            subscription_payments.extend(filtered_sub_payments)
+    
+    # Calculate total purchased minutes
+    total_purchased_minutes = sum(payment.get("minutes", 0) for payment in payments)
+    
+    # Add subscription minutes if relevant
+    # Note: You might need to adjust this if subscription payments are calculated differently
+    for sub_payment in subscription_payments:
+        if "minutes" in sub_payment:
+            total_purchased_minutes += sub_payment.get("minutes", 0)
+    
+    # Prepare usage and purchased minutes over time
+    usage_over_time = {}
+    purchased_over_time = {}
+    
+    for log in call_logs:
+        date = log["date_time"][:10]  # only date part (YYYY-MM-DD)
+        # Convert duration string to minutes for this date
+        minutes = convert_duration_to_minutes(log.get("duration", "0:00"))
+        usage_over_time[date] = usage_over_time.get(date, 0) + minutes
+    
+    for payment in payments:
+        date = payment["date"]
+        purchased_over_time[date] = purchased_over_time.get(date, 0) + payment.get("minutes", 0)
+    
+    # Add subscription payments to purchased_over_time
+    for payment in subscription_payments:
+        if "minutes" in payment:
+            date = payment["date"]
+            purchased_over_time[date] = purchased_over_time.get(date, 0) + payment.get("minutes", 0)
+    
+    # Prepare the graph data
+    all_dates = sorted(set(list(usage_over_time.keys()) + list(purchased_over_time.keys())))
+    graph_data = []
+    for date in all_dates:
+        graph_data.append({
+            "date": date,
+            "usage": round(usage_over_time.get(date, 0), 2),  # Round to 2 decimal places for readability
+            "purchased": purchased_over_time.get(date, 0)
+        })
+    # Filter twilio minutes
+    twilio_filter = {
+        "service":"twilio",
+    }
+    
+    # Filter openai minutes
+    openai_filter = {
+        "service":"openai",
+    }
+
+    twilio_records = list(Collection_admin_billing.find(twilio_filter))
+    openai_records = list(Collection_admin_billing.find(openai_filter))
+    
+    call_logs = list(collection_call_logs.find())
+    # Convert string duration to minutes before summing
+    total_used = sum(convert_duration_to_minutes(log.get("duration", "0:00")) for log in call_logs)
+
+    # Convert amount to minutes
+    total_twilio_minutes = sum(log.get("amount")/0.0085 for log in twilio_records) - total_used
+    total_openai_minutes = sum(log.get("amount")/0.04 for log in openai_records) - total_used
+
+    return {
+        "total_users": total_users,
+        "total_used_minutes": round(total_used_minutes, 2),  # Round the total for consistency
+        "total_purchased_minutes": total_purchased_minutes,
+        "graph_data": graph_data,
+        "total_twilio_minutes":total_twilio_minutes,
+        "total_openai_minutes":total_openai_minutes
+    }
+    
 async def update_user_twilio_number_service(user_id: str, twilio_number: str, current_user):
     """
     Update a user's Twilio number in the user collection.

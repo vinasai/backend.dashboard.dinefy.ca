@@ -14,7 +14,7 @@ from typing import List
 from pydantic import EmailStr
 from app.stripe_service import StripeService
 from app.models import PaymentMethod, AddPaymentMethod, PurchaseResponse
-from app.database import Collection_billing
+from app.database import Collection_billing, collection_restaurant
 from fastapi import BackgroundTasks
 import uuid
 import stripe
@@ -346,10 +346,6 @@ async def verify_email(verify_data: app.models.VerifyEmailRequest):
     )
     
     return result
-
-@router.post("/contact-email")
-async def contact_email(request: app.models.ContactRequest):
-    return await app.services.contact_email(request)
        
 # Modified subscribe route with email notification
 @router.post("/subscribe", response_model=app.models.SubscriptionResponse)
@@ -861,6 +857,31 @@ async def get_all_restaurents_details(current_user: User = Depends(get_current_u
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@router.get("/admin/overview")
+async def overview(
+    start_date: str = Query(..., description="Start date in YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date in YYYY-MM-DD"),
+    user_email: Optional[str] = Query(None, description="User email or 'all'")
+):
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return {"error": "Invalid date format. Use YYYY-MM-DD."}
+
+    data = app.services.admin_overview_data(start, end, user_email)
+    return data
+
+@router.get('/admin/user')
+def get_users():
+    users = list(collection_restaurant.find())
+    result = [convert_objectid(d) for d in users]
+    print(result)
+    return result
+def convert_objectid(doc):
+    doc["_id"] = str(doc["_id"])
+    return doc
+    
 @router.get("/admin/payments")
 async def get_payments(
     user_email: Optional[str] = None,
@@ -908,6 +929,15 @@ async def add_credit_purchase(
     Add a new credit purchase
     """
     return await app.services.add_credit_purchase_service(current_user, purchase.dict())
+
+#dinefy.ca
+@router.post("/send-email")
+async def demo_email(request: app.models.DemoRequest):
+    return await app.services.send_email(request)
+
+@router.post("/contact-email")
+async def contact_email(request: app.models.ContactRequest):
+    return await app.services.contact_email(request)
 
 # Updated route to fix the request body handling
 @router.put("/admin/update-twilio-number/{user_id}")
