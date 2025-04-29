@@ -1049,6 +1049,15 @@ async def send_verification_email(email: EmailStr, verification_code: str):
                         Enter this code on the verification page. For your security, this code will expire in <strong>10 minutes</strong>.
                     </p>
                     <p style="font-size: 14px; color: #7f8c8d;">
+                        After email verification use YOUR OWN TWILIO NUMBER or use this,
+                    </p>
+                    <p style="font-size: 24px; font-weight: bold; color: #2980b9; text-align: center;">
+                        Temporary Dinefy number +1 978 631 1190 to sign up,
+                    </p>
+                    <p style="font-size: 14px; color: #7f8c8d;">
+                        while we assign you one.
+                    </p>
+                    <p style="font-size: 14px; color: #7f8c8d;">
                         If you did not create an account with Dinefy, please disregard this message.
                     </p>
                     <br>
@@ -1935,7 +1944,7 @@ def admin_overview_data(start_date: datetime, end_date: datetime, user_email: Op
     
     # Convert string duration to minutes before summing
     total_used_minutes = sum(convert_duration_to_minutes(log.get("duration", "0:00")) for log in call_logs)
-    
+
     # Prepare date strings for comparison
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
