@@ -1881,3 +1881,33 @@ async def add_credit_purchase_service(current_user: dict, purchase_data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding credit purchase: {str(e)}")
     
+async def update_user_twilio_number_service(user_id: str, twilio_number: str, current_user):
+    """
+    Update a user's Twilio number in the user collection.
+    """
+    try:
+        # First, get the restaurant to find the user email
+        restaurant = collection_restaurant.find_one({"_id": ObjectId(user_id)})
+        if not restaurant:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
+        
+        user_email = restaurant.get("user_email")
+        if not user_email:
+            raise HTTPException(status_code=404, detail="User email not found in restaurant data")
+        
+        # Update the twilio_number field in the user collection
+        result = collection_user.update_one(
+            {"user_email": user_email},
+            {"$set": {"twilio_number": twilio_number}}
+        )
+        
+        if result.modified_count == 0:
+            # If no document was modified, check if the user exists
+            user = collection_user.find_one({"user_email": user_email})
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            # If user exists but no modification was made, it might be that the same number was provided
+        
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating Twilio number: {str(e)}")

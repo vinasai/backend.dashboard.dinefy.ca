@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import app.database
 from app.models import User_login, User,UpdateEmail,ChangePassword, CloverIntegrationBase, CloverIntegrationResponse, ShopifyIntegrationBase, ShopifyIntegrationResponse,PasswordChangeResponse,DeleteAccountResponse,DeleteAccount,RestaurantDetails,PasswordResetRequest, VerifyResetCodeRequest
@@ -908,3 +908,23 @@ async def add_credit_purchase(
     Add a new credit purchase
     """
     return await app.services.add_credit_purchase_service(current_user, purchase.dict())
+
+# Updated route to fix the request body handling
+@router.put("/admin/update-twilio-number/{user_id}")
+async def update_user_twilio_number(
+    user_id: str, 
+    twilio_data: dict,  # Remove the Body(..., embed=True)
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a user's Twilio number by admin.
+    """
+    try:
+        if "twilioNumber" not in twilio_data:
+            raise HTTPException(status_code=422, detail="Missing 'twilioNumber' in request body")
+            
+        twilio_number = twilio_data.get("twilioNumber")
+        result = await app.services.update_user_twilio_number_service(user_id, twilio_number, current_user)
+        return {"message": "Twilio number updated successfully", "user_id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
