@@ -470,7 +470,7 @@ async def create_subscription(
         payment_record = {
             "date": datetime.now().strftime("%Y-%m-%d"),
             "purchase_id": "PUR-Free",
-            "amount": "Free",
+            "amount": 0,
             "minutes": 1000,
             "status": "completed"
         }
@@ -764,7 +764,7 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
                         payment_record = {
                             "date": datetime.now().strftime("%Y-%m-%d"),
                             "purchase_id": "PUR-Free",
-                            "amount": "Free",
+                            "amount": 0,
                             "minutes": 1000,
                             "status": "completed"
                         }
