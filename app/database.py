@@ -4,7 +4,7 @@ from app.config import MONGODB_URL
 
 client = MongoClient(MONGODB_URL)
 
-database = client.Call_Assistant_Dashboard
+database = client.dinefy
 
 collection_user = database["users"]
 collection_restaurant = database['restaurant_details']
