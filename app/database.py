@@ -8,7 +8,7 @@ database = client.dinefy
 
 collection_user = database["users"]
 collection_restaurant = database['restaurant_details']
-collection_integrations = database["intergrations"]
+collection_integrations = database["integrations"]
 collection_call_logs = database['call_logs']
 Collection_billing = database['billing']
 collection_email_verification = database["email_verification"]
