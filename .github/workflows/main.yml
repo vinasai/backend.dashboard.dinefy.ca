@@ -48,6 +48,8 @@ jobs:
             echo "Cloning repository..."
             git clone "$REPO_URL" "$TEMP_DIR"
 
+            rm -rf "$SERVER_PATH"
+
             # Create the server directory if it doesn't exist
             mkdir -p "$SERVER_PATH"
 
